@@ -13,6 +13,7 @@ import {
 import {
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react'
@@ -45,7 +46,13 @@ interface ContentManagerProps {
   showSystem: boolean
   showMissingMedia: boolean
   showDeleted: boolean
-  initialView?: ContentView
+  view: ContentView
+  query: string
+  scrollPosition: { current: number }
+  filtersOpen: boolean
+  onFiltersOpenChange(open: boolean): void
+  onViewChange(view: ContentView): void
+  onQueryChange(query: string): void
   onClose(): void
   onPreview(messageId: string): void
   onSetCover(mediaName: string | null): void
@@ -172,7 +179,13 @@ export function ContentManager({
   showSystem,
   showMissingMedia,
   showDeleted,
-  initialView = 'all',
+  view,
+  query,
+  scrollPosition,
+  filtersOpen,
+  onFiltersOpenChange,
+  onViewChange,
+  onQueryChange,
   onClose,
   onPreview,
   onSetCover,
@@ -191,8 +204,10 @@ export function ContentManager({
     onClose,
     '.content-manager-button',
   )
-  const [query, setQuery] = useState('')
-  const [view, setView] = useState<ContentView>(initialView)
+  const timelineRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (timelineRef.current) timelineRef.current.scrollTop = scrollPosition.current
+  }, [scrollPosition, query, view])
   const deferredQuery = useDeferredValue(query)
   const excluded = new Set(excludedMessageIds)
   const adjustedPhotos = new Set(
@@ -246,10 +261,14 @@ export function ContentManager({
         </header>
 
         <div className="content-drawer-controls">
-          <details className="memory-scope" open>
+          <details
+            className="memory-scope"
+            open={filtersOpen}
+            onToggle={(event) => onFiltersOpenChange(event.currentTarget.open)}
+          >
             <summary>
               <SlidersHorizontal size={14} aria-hidden="true" />
-              <span>Sélection</span>
+              <span>Période et participants</span>
               <small>{includedParticipants.length}/{participants.length} personnes</small>
             </summary>
             <div className="memory-scope-content">
@@ -306,19 +325,18 @@ export function ContentManager({
           <label className="content-search">
             <Search size={16} aria-hidden="true" />
             <input
-              autoFocus
               type="search"
               value={query}
               placeholder="Rechercher un message, une personne…"
               aria-label="Rechercher dans la conversation"
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => onQueryChange(event.target.value)}
             />
             {query ? (
               <button
                 type="button"
                 aria-label="Effacer la recherche"
                 title="Effacer la recherche"
-                onClick={() => setQuery('')}
+                onClick={() => onQueryChange('')}
               >
                 <X size={14} />
               </button>
@@ -330,7 +348,7 @@ export function ContentManager({
               type="button"
               className={view === 'all' ? 'is-active' : ''}
               aria-pressed={view === 'all'}
-              onClick={() => setView('all')}
+              onClick={() => onViewChange('all')}
             >
               <MessageSquareText size={14} /> Tout
             </button>
@@ -338,7 +356,7 @@ export function ContentManager({
               type="button"
               className={view === 'photos' ? 'is-active' : ''}
               aria-pressed={view === 'photos'}
-              onClick={() => setView('photos')}
+              onClick={() => onViewChange('photos')}
             >
               <Image size={14} /> Photos
             </button>
@@ -346,7 +364,7 @@ export function ContentManager({
               type="button"
               className={view === 'hidden' ? 'is-active' : ''}
               aria-pressed={view === 'hidden'}
-              onClick={() => setView('hidden')}
+              onClick={() => onViewChange('hidden')}
             >
               <EyeOff size={14} /> Masqués
             </button>
@@ -360,20 +378,24 @@ export function ContentManager({
                 disabled={visibleMessages.length === 0}
                 onClick={() => onSetExcluded(visibleMessages.map(({ id }) => id), false)}
               >
-                <Eye size={13} /> Inclure
+                <Eye size={13} /> Tout inclure
               </button>
               <button
                 type="button"
                 disabled={visibleMessages.length === 0}
                 onClick={() => onSetExcluded(visibleMessages.map(({ id }) => id), true)}
               >
-                <EyeOff size={13} /> Masquer
+                <EyeOff size={13} /> Tout masquer
               </button>
             </div>
           </div>
         </div>
 
-        <div className="content-timeline">
+        <div
+          className="content-timeline"
+          ref={timelineRef}
+          onScroll={(event) => { scrollPosition.current = event.currentTarget.scrollTop }}
+        >
           {visibleMessages.length === 0 ? (
             <div className="content-empty">
               <Search size={22} aria-hidden="true" />

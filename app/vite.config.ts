@@ -4,8 +4,13 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
   base: '/whatsapp-book/',
+  optimizeDeps: {
+    include: ['@react-pdf/renderer', 'buffer'],
+  },
   plugins: [
-    react(),
+    react({
+      exclude: [/node_modules/, /\/src\/workers\//, /\/src\/lib\/direct-pdf\.tsx$/],
+    }),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: [

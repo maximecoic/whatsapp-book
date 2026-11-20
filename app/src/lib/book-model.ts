@@ -4,6 +4,14 @@ import type {
   TableOfContentsEntry,
 } from './chat-types'
 import {
+  getCompositionLineWidth,
+  getCompositionMetrics,
+  getCompositionPhotoHeight,
+  isDesignedComposition,
+  layoutCompositionPage,
+  type DesignedComposition,
+} from './book-composition'
+import {
   DEFAULT_ART_DIRECTION,
   DENSITY_CAPACITY_FACTOR,
   type BookArtDirection,
@@ -12,7 +20,7 @@ import {
 
 export type BookFormat = 'a5' | 'a4' | 'letter' | 'square'
 export type BookOrientation = 'portrait' | 'landscape'
-export type BookTheme = 'journal' | 'conversation' | 'album'
+export type BookTheme = 'journal' | 'conversation' | 'album' | DesignedComposition
 export type PhotoLayout = 'auto' | 'wide' | 'half' | 'full-page'
 export type PhotoFit = 'contain' | 'cover'
 export type PhotoRotation = 0 | 90 | 180 | 270
@@ -139,6 +147,7 @@ export interface BookSettings {
   pageBreakBeforeIds: string[]
   chapters: BookChapter[]
   photoOverrides: PhotoOverride[]
+  photoAspectRatios?: Record<string, number>
   captionOverrides: CaptionOverride[]
   participantProfiles: ParticipantProfile[]
   editorialPages: EditorialPage[]
@@ -388,6 +397,10 @@ function insertEditorialPages(
 }
 
 function pageCapacity(settings: BookSettings): number {
+  if (isDesignedComposition(settings.theme)) {
+    const metrics = getCompositionMetrics(compositionOptions(settings, settings.theme))
+    return Math.max(8, (metrics.heightMm - 15) / metrics.lineMm)
+  }
   const baseCapacity: Record<BookFormat, number> = {
     a5: 22,
     a4: 40,
@@ -410,6 +423,9 @@ function pageCapacity(settings: BookSettings): number {
 }
 
 function estimatedLineWidth(settings: BookSettings): number {
+  if (isDesignedComposition(settings.theme)) {
+    return getCompositionLineWidth(compositionOptions(settings, settings.theme))
+  }
   const baseWidth = settings.format !== 'square' && settings.orientation === 'landscape'
     ? 92
     : 62
@@ -594,7 +610,19 @@ export function getDayLayoutWeight(
   )
 }
 
-function mediaBaseWeight(settings: BookSettings): number {
+function mediaBaseWeight(settings: BookSettings, message?: ChatMessage): number {
+  if (isDesignedComposition(settings.theme)) {
+    const options = compositionOptions(settings, settings.theme)
+    const metrics = getCompositionMetrics(options)
+    const override = message ? getPhotoOverride(settings, message.sourceMessageId ?? message.id) : null
+    const width = settings.theme === 'photo-story'
+      ? metrics.widthMm - 22
+      : override?.layout === 'wide'
+        ? metrics.widthMm
+        : (metrics.widthMm - metrics.gapMm) / 2
+    const height = getCompositionPhotoHeight(options, width - (settings.theme === 'collage' ? 8 : 0))
+    return height / metrics.lineMm + 6
+  }
   return settings.theme === 'album'
     ? 5.5
     : settings.theme === 'conversation'
@@ -613,7 +641,7 @@ function messageWeight(message: ChatMessage, settings: BookSettings): number {
   )
 
   if (message.kind === 'media') {
-    return mediaBaseWeight(settings) + textWeight
+    return mediaBaseWeight(settings, message) + textWeight
   }
   if (message.kind === 'editorial') return pageCapacity(settings)
   if (message.kind === 'system') return 1.5
@@ -658,7 +686,7 @@ function splitOversizedMessage(
     : null
   if (photoOverride?.showCaption === false) return [message]
   const reservedWeight = message.kind === 'media'
-    ? mediaBaseWeight(settings) + 2
+    ? mediaBaseWeight(settings, message) + 2
     : message.kind === 'editorial'
       ? 7
       : 3.8
@@ -923,6 +951,17 @@ export function getBookNavigationEntries(
   ]
 }
 
+function compositionOptions(settings: BookSettings, theme: DesignedComposition) {
+  return {
+    theme,
+    ...getPageDimensions(settings.format, settings.orientation),
+    fontScale: settings.fontScale,
+    lineHeight: settings.artDirection.lineHeight,
+    photoOverrides: settings.photoOverrides,
+    photoAspectRatios: settings.photoAspectRatios,
+  }
+}
+
 export function paginateMessages(
   messages: ChatMessage[],
   settings: BookSettings,
@@ -978,6 +1017,12 @@ export function paginateMessages(
       ? getPhotoOverride(settings, message.sourceMessageId ?? message.id)
       : null
     const startsFullPage = photoOverride?.layout === 'full-page'
+    const exceedsCapacity = isDesignedComposition(settings.theme)
+      ? !layoutCompositionPage(
+          [...page, message],
+          compositionOptions(settings, settings.theme),
+        ).fits
+      : weight + nextWeight > capacity
 
     if (
       page.length > 0 &&
@@ -987,7 +1032,7 @@ export function paginateMessages(
         startsFullPage ||
         exceedsPhotoLimit ||
         message.continuation !== undefined ||
-        weight + nextWeight > capacity
+        exceedsCapacity
       )
     ) {
       pages.push(page)

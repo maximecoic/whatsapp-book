@@ -5,6 +5,7 @@ const DOCKED_QUERY = '(min-width: 761px)'
 export function useResponsiveWorkspacePanel(
   onClose: () => void,
   triggerSelector: string,
+  enabled = true,
 ) {
   const [isDocked, setIsDocked] = useState(() => (
     typeof globalThis.matchMedia === 'function' &&
@@ -23,7 +24,7 @@ export function useResponsiveWorkspacePanel(
   }, [])
 
   useEffect(() => {
-    if (isDocked) return
+    if (isDocked || !enabled) return
     const previousFocus = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null
@@ -31,6 +32,7 @@ export function useResponsiveWorkspacePanel(
     const backgroundElements = [
       document.querySelector<HTMLElement>('.app-header'),
       document.querySelector<HTMLElement>('.studio-toolbar'),
+      document.querySelector<HTMLElement>('.workspace-switcher'),
       ...Array.from(document.querySelectorAll<HTMLElement>(
         '.studio-layout > :not(.content-drawer):not(.content-drawer-backdrop)',
       )),
@@ -81,7 +83,7 @@ export function useResponsiveWorkspacePanel(
         : document.querySelector<HTMLElement>(triggerSelector)
       restoreTarget?.focus()
     }
-  }, [isDocked, triggerSelector])
+  }, [isDocked, triggerSelector, enabled])
 
   return { isDocked, panelRef }
 }

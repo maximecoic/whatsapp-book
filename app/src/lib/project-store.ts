@@ -139,10 +139,15 @@ export function normalizeSavedSettings(
   )
     ? saved.orientation as BookSettings['orientation']
     : defaults.orientation
-  const validTheme = ['journal', 'conversation', 'album'].includes(
-    String(saved.theme),
+  const candidateTheme = saved.theme === 'album'
+    ? 'collage'
+    : saved.theme === 'conversation'
+      ? 'journal'
+      : saved.theme
+  const validTheme = ['journal', 'gazette', 'photo-story', 'collage'].includes(
+    String(candidateTheme),
   )
-    ? saved.theme as BookSettings['theme']
+    ? candidateTheme as BookSettings['theme']
     : defaults.theme
   const validDate = (value: unknown, fallback: string) => (
     typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -163,7 +168,7 @@ export function normalizeSavedSettings(
   const candidatePreset = artCandidate && typeof artCandidate === 'object'
     ? validChoice<BookVisualPreset>(
         artCandidate.preset,
-        ['timeless', 'modern', 'correspondence', 'graphic', 'minimal'],
+        Object.keys(BOOK_STYLE_PRESETS) as BookVisualPreset[],
         defaults.artDirection.preset,
       )
     : defaults.artDirection.preset

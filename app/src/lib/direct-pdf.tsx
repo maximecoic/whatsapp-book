@@ -5,7 +5,9 @@ import {
   ImageBackground as PdfImageBackground,
   Link,
   Page,
+  Path,
   StyleSheet,
+  Svg,
   Text,
   View,
 } from '@react-pdf/renderer'
@@ -26,8 +28,15 @@ import {
   type BookNavigationEntry,
   type BookSettings,
 } from './book-model'
-import { ensureReadableColor, type BookDateStyle } from './book-style'
+import {
+  ensureReadableColor,
+  getJournalPageDecoration,
+  getCompositionColors,
+  SCRAPBOOK_PHOTO_MAT,
+  type BookDateStyle,
+} from './book-style'
 import type { ChatMessage } from './chat-types'
+import { getCompositionMetrics, isDesignedComposition, layoutCompositionPage } from './book-composition'
 
 const globalWithBuffer = globalThis as typeof globalThis & {
   Buffer?: typeof Buffer
@@ -696,6 +705,17 @@ function MessageContent({
   const profile = getParticipantProfile(settings, message.sender)
   const color = participantColor(settings, message.sender)
   const source = message.mediaName ? mediaUrls[message.mediaName] : null
+  const compositionFontPt = isDesignedComposition(settings.theme)
+    ? getCompositionMetrics({
+        theme: settings.theme,
+        ...getPageDimensions(settings.format, settings.orientation),
+        fontScale: settings.fontScale,
+        lineHeight: settings.artDirection.lineHeight,
+        photoOverrides: settings.photoOverrides,
+      }).fontPt
+    : null
+  const hasPhotoMat = settings.artDirection.preset === 'scrapbook' &&
+    settings.artDirection.photoFrame === 'bordered'
   const conversationStyle = settings.theme === 'conversation'
     ? {
         width: '86%',
@@ -707,7 +727,12 @@ function MessageContent({
     : {}
   return (
     <View style={[styles.message, conversationStyle]} wrap={false}>
-      <View style={styles.messageMeta}>
+      <View style={[styles.messageMeta, settings.theme === 'collage' ? { flexWrap: 'wrap' } : {}]}>
+        {settings.theme === 'collage' ? (
+          <Text style={{ fontSize: 6, color: ensureReadableColor(settings.accent, settings.artDirection.paperColor) }}>
+            {formatBookDate(message.timestamp, settings.artDirection.dateStyle)}
+          </Text>
+        ) : null}
         <Text style={[styles.sender, { color }]}>
           {profile?.displayName.trim() || message.sender || 'WhatsApp'}
         </Text>
@@ -726,10 +751,14 @@ function MessageContent({
             style={[
               styles.photoFrame,
               {
-                height: override.layout === 'full-page' ? photoHeight * 1.55 : photoHeight,
+                height: override.layout === 'full-page' && !compositionFontPt ? photoHeight * 1.55 : photoHeight,
                 borderRadius: settings.artDirection.photoFrame === 'soft' ? 5 : 0,
                 borderWidth: settings.artDirection.photoFrame === 'bordered' ? 1 : 0,
-                borderColor: settings.accent,
+                borderColor: hasPhotoMat ? SCRAPBOOK_PHOTO_MAT.color : settings.accent,
+                ...(hasPhotoMat ? {
+                  borderWidth: SCRAPBOOK_PHOTO_MAT.sideMm * POINTS_PER_MM,
+                  borderBottomWidth: SCRAPBOOK_PHOTO_MAT.bottomMm * POINTS_PER_MM,
+                } : {}),
               },
             ]}
           >
@@ -753,7 +782,14 @@ function MessageContent({
             )}
           </View>
           {message.body && override.showCaption ? (
-            <Text style={[styles.caption, { color: settings.artDirection.inkColor }]}>
+            <Text style={[styles.caption, {
+              color: settings.artDirection.inkColor,
+              ...(compositionFontPt ? {
+                fontSize: compositionFontPt,
+                lineHeight: settings.artDirection.lineHeight,
+                marginTop: 2 * POINTS_PER_MM,
+              } : {}),
+            }]}>
               {message.body}
             </Text>
           ) : null}
@@ -765,12 +801,147 @@ function MessageContent({
             {
               color: settings.artDirection.inkColor,
               lineHeight: settings.artDirection.lineHeight,
+              ...(compositionFontPt ? { fontSize: compositionFontPt } : {}),
             },
           ]}
         >
           {message.body}
         </Text>
       )}
+    </View>
+  )
+}
+
+function DesignedConversationContent({
+  page,
+  settings,
+  mediaUrls,
+}: {
+  page: ChatMessage[]
+  settings: BookSettings
+  mediaUrls: MediaUrls
+}) {
+  if (!isDesignedComposition(settings.theme)) return null
+  const layout = layoutCompositionPage(page, {
+    theme: settings.theme,
+    ...getPageDimensions(settings.format, settings.orientation),
+    fontScale: settings.fontScale,
+    lineHeight: settings.artDirection.lineHeight,
+    photoOverrides: settings.photoOverrides,
+    photoAspectRatios: settings.photoAspectRatios,
+  })
+  const isGazette = settings.theme === 'gazette'
+  const isCollage = settings.theme === 'collage'
+  const isStory = settings.theme === 'photo-story'
+  const compositionColors = getCompositionColors(settings.artDirection, settings.accent)
+  const accent = ensureReadableColor(settings.accent, settings.artDirection.paperColor)
+  const headingFont = settings.artDirection.fontPair === 'modern' ||
+    settings.artDirection.fontPair === 'correspondence'
+    ? 'Chatbound Sans'
+    : 'Chatbound Serif'
+  const bodyFont = isGazette || settings.artDirection.fontPair === 'literary' ||
+    settings.artDirection.fontPair === 'correspondence'
+    ? 'Chatbound Serif'
+    : 'Chatbound Sans'
+  return (
+    <View style={{
+      position: 'absolute',
+      top: layout.marginMm * POINTS_PER_MM,
+      left: layout.marginMm * POINTS_PER_MM,
+      width: layout.widthMm * POINTS_PER_MM,
+      height: (layout.heightMm + layout.headerMm + layout.headerGapMm + 6) * POINTS_PER_MM,
+      fontFamily: bodyFont,
+    }}>
+      {layout.headerMm > 0 ? <View style={{
+        height: layout.headerMm * POINTS_PER_MM,
+        paddingTop: isGazette ? 2 * POINTS_PER_MM : 0,
+        borderTopWidth: isGazette ? 0.3 * POINTS_PER_MM : 0,
+        borderBottomWidth: isStory ? 0 : (isGazette ? 1 : 0.4) * POINTS_PER_MM,
+        borderBottomColor: isGazette ? settings.artDirection.inkColor : accent,
+        borderBottomStyle: isCollage ? 'dashed' : 'solid',
+        textAlign: isGazette ? 'center' : 'left',
+      }}>
+        <Text style={{ fontSize: 7, marginBottom: POINTS_PER_MM, opacity: 0.7 }}>
+          {page[0]?.chapterTitle ? 'Chapitre' : settings.subtitle}
+        </Text>
+        <Text style={{
+          fontFamily: isGazette ? 'Chatbound Serif' : headingFont,
+          fontSize: isGazette ? 20 : isCollage ? 14 : 17,
+          fontWeight: isGazette ? 700 : 500,
+          lineHeight: 1.05,
+        }}>
+          {page[0]?.chapterTitle || settings.title}
+        </Text>
+      </View> : null}
+      {isGazette ? (
+        <View style={{
+          position: 'absolute',
+          left: layout.widthMm / 2 * POINTS_PER_MM,
+          top: (layout.headerMm + layout.headerGapMm) * POINTS_PER_MM,
+          height: layout.heightMm * POINTS_PER_MM,
+          borderLeftWidth: 0.15 * POINTS_PER_MM,
+          borderLeftColor: '#c4c6c3',
+        }} />
+      ) : null}
+      {layout.items.map((item) => (
+        <View key={item.message.id} style={{
+          position: 'absolute',
+          left: item.xMm * POINTS_PER_MM,
+          top: (layout.headerMm + layout.headerGapMm + item.yMm) * POINTS_PER_MM,
+          width: item.widthMm * POINTS_PER_MM,
+          height: item.heightMm * POINTS_PER_MM,
+          padding: layout.tilePaddingMm * POINTS_PER_MM,
+          backgroundColor: isCollage ? (item.message.mediaName ? '#ffffff' : compositionColors.notePaper) : 'transparent',
+          transform: `rotate(${item.rotation}deg)`,
+        }}>
+          {isCollage && item.message.mediaName ? (
+            <View style={{
+              position: 'absolute',
+              top: -1.5 * POINTS_PER_MM,
+              left: (item.widthMm / 2 - 9) * POINTS_PER_MM,
+              width: 18 * POINTS_PER_MM,
+              height: 4 * POINTS_PER_MM,
+              backgroundColor: compositionColors.tape,
+              opacity: 0.85,
+            }} />
+          ) : null}
+          {isStory && !layout.fullPagePhoto ? (
+            <View style={{
+              position: 'absolute',
+              left: -22 * POINTS_PER_MM,
+              top: 0,
+              width: 18 * POINTS_PER_MM,
+              color: accent,
+            }}>
+              <Text style={{ fontSize: 27, fontFamily: headingFont, lineHeight: 1 }}>
+                {new Date(item.message.timestamp).getDate().toString().padStart(2, '0')}
+              </Text>
+              <Text style={{ fontSize: 6.5, marginTop: POINTS_PER_MM }}>
+                {new Intl.DateTimeFormat('fr-FR', { month: 'short', year: 'numeric' }).format(item.message.timestamp)}
+              </Text>
+            </View>
+          ) : null}
+          {!isCollage ? <Text style={{
+            fontSize: isCollage ? 6 : 6.5,
+            lineHeight: isCollage ? 1.15 : 1.2,
+            ...(isCollage ? { height: 5 * POINTS_PER_MM } : {}),
+            marginBottom: (isCollage ? 0.5 : 1.4) * POINTS_PER_MM,
+            color: accent,
+            opacity: isStory && !layout.fullPagePhoto ? 0 : 1,
+            paddingTop: isGazette ? POINTS_PER_MM : 0,
+            borderTopWidth: isGazette ? 0.2 * POINTS_PER_MM : 0,
+          }}>
+            {formatBookDate(item.message.timestamp, settings.artDirection.dateStyle)}
+          </Text> : null}
+          <MessageContent
+            message={item.message}
+            settings={settings}
+            mediaUrls={mediaUrls}
+            photoHeight={item.photoHeightMm * POINTS_PER_MM}
+            alternate={item.index % 2 === 1}
+          />
+        </View>
+      ))}
     </View>
   )
 }
@@ -914,6 +1085,7 @@ export function DirectPdfDocument({
     height: dimensions.heightMm * POINTS_PER_MM,
   }
   const padding = pagePadding(settings)
+  const decoration = getJournalPageDecoration(settings.artDirection, dimensions)
   const entries = getBookNavigationEntries(pages, settings)
   const participants = Array.from(new Set(messages.flatMap((message) => (
     message.sender ? [message.sender] : []
@@ -969,8 +1141,26 @@ export function DirectPdfDocument({
             ]}
             key={page[0]?.id ?? `page-${number}`}
           >
+            {decoration && editorial?.kind !== 'blank' ? (
+              <Svg
+                width={size.width}
+                height={size.height}
+                viewBox={`0 0 ${dimensions.widthMm} ${dimensions.heightMm}`}
+                style={{ position: 'absolute', top: 0, left: 0 }}
+              >
+                <Path
+                  d={decoration.path}
+                  fill="none"
+                  stroke={decoration.color}
+                  strokeWidth={decoration.strokeWidth}
+                  strokeLinecap="round"
+                />
+              </Svg>
+            ) : null}
             {editorial?.kind === 'blank' ? null : editorial ? (
               <EditorialContent message={page[0]} settings={settings} />
+            ) : isDesignedComposition(settings.theme) ? (
+              <DesignedConversationContent page={page} settings={settings} mediaUrls={mediaUrls} />
             ) : (
               <ConversationContent
                 page={page}

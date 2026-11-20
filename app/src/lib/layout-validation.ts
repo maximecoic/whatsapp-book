@@ -68,7 +68,7 @@ export function inspectPrintLayout(root: HTMLElement): LayoutReport {
     if (coverCopy && overflows(coverCopy)) addIssue(pageNumber, 'content-overflow')
     pageElement
       .querySelectorAll<HTMLElement>(
-        '.book-editorial-page, .book-editorial-copy, .book-table-of-contents',
+        '.book-editorial-page, .book-editorial-copy, .book-table-of-contents, .composition-item',
       )
       .forEach((element) => {
         if (overflows(element)) addIssue(pageNumber, 'content-overflow')

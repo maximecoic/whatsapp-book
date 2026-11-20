@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, it } from 'vitest'
 import { createInitialSettings, type BookSettings } from './book-model'
+import { BOOK_STYLE_PRESETS, clonePresetArtDirection } from './book-style'
 import type { ChatMessage, ParsedChat } from './chat-types'
 import {
   deleteBookProject,
@@ -39,6 +40,43 @@ const chat: ParsedChat = {
 }
 
 describe('normalizeSavedSettings', () => {
+  it.each([
+    ['album', 'collage'],
+    ['conversation', 'journal'],
+  ] as const)('migrates the retired %s composition to %s', (retired, replacement) => {
+    const defaults = createInitialSettings(chat, 'chat.zip')
+    const saved = { ...defaults, theme: retired, title: 'Notre histoire' }
+    const restored = normalizeSavedSettings(saved, defaults, chat)
+    expect(restored.theme).toBe(replacement)
+    expect(restored.title).toBe(saved.title)
+    expect(restored.includedParticipants).toEqual(saved.includedParticipants)
+    expect(restored.photoOverrides).toEqual(saved.photoOverrides)
+  })
+
+  it.each(['gazette', 'photo-story', 'collage'] as const)(
+    'preserves the %s composition when reopening a project',
+    (theme) => {
+      const defaults = createInitialSettings(chat, 'chat.zip')
+      expect(normalizeSavedSettings({ ...defaults, theme }, defaults, chat).theme).toBe(theme)
+    },
+  )
+
+  it.each(['bullet', 'travel', 'scrapbook'] as const)(
+    'restores the %s journaling preset without replacing its settings',
+    (preset) => {
+      const defaults = createInitialSettings(chat, 'chat.zip')
+      const artDirection = clonePresetArtDirection(preset)
+      const saved = {
+        ...defaults,
+        accent: BOOK_STYLE_PRESETS[preset].accent,
+        artDirection,
+      }
+      const restored = normalizeSavedSettings(saved, defaults, chat)
+      expect(restored.artDirection).toEqual(artDirection)
+      expect(restored.accent).toBe(saved.accent)
+    },
+  )
+
   it('restores valid exclusions and the selected cover', () => {
     const defaults = createInitialSettings(chat, 'chat.zip')
     const settings = normalizeSavedSettings(

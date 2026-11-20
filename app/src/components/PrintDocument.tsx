@@ -25,7 +25,7 @@ export function PrintDocument({
   const pageStyle = {
     '--book-accent': settings.accent,
     '--book-font-scale': settings.fontScale,
-    ...getBookStyleVariables(settings.artDirection, settings.accent),
+    ...getBookStyleVariables(settings.artDirection, settings.accent, dimensions),
     width: `${dimensions.widthMm}mm`,
     height: `${dimensions.heightMm}mm`,
   } as CSSProperties

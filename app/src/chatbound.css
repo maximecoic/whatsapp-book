@@ -860,28 +860,29 @@ p {
 }
 
 .workspace-switcher {
+  flex: 0 0 auto;
   display: flex;
   align-items: stretch;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: white;
+  gap: 4px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
 }
 
 .workspace-switcher > button {
   position: relative;
   min-width: 0;
   height: 38px;
-  padding: 0 11px;
+  padding: 0 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   color: #4d5955;
   border: 0;
-  border-right: 1px solid var(--line);
-  background: white;
-  font-size: 10px;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 12px;
   font-weight: 750;
   cursor: pointer;
 }
@@ -906,6 +907,7 @@ p {
   font-size: 9px;
 }
 
+.cover-panel-button.is-active,
 .content-manager-button.is-active,
 .editorial-panel-button.is-active,
 .style-panel-button.is-active {
@@ -1332,6 +1334,11 @@ p {
 .setting-section {
   padding: 20px;
   border-bottom: 1px solid #dde1de;
+}
+
+.cover-photo-button {
+  width: 100%;
+  margin-top: 20px;
 }
 
 .setting-section h3,
@@ -2703,9 +2710,140 @@ p {
   gap: 6px;
 }
 
+.composition-choices {
+  display: grid;
+  gap: 8px;
+}
+
+.composition-choices > button {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: white;
+  text-align: left;
+  cursor: pointer;
+}
+
+.composition-choices > button.is-active {
+  border-color: var(--petrol);
+  background: #e7f0ed;
+}
+
+.composition-choice-copy {
+  display: grid;
+  gap: 5px;
+}
+
+.composition-choice-copy strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.composition-choice-copy small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.composition-choice-sample {
+  width: 52px;
+  height: 68px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: repeat(3, 1fr);
+  gap: 4px;
+  padding: 7px 5px;
+  border: 1px solid #bec7c0;
+  background: #f7f8f6;
+}
+
+.composition-choice-sample i {
+  display: block;
+  background: #b7cbc4;
+}
+
+.sample-gazette {
+  grid-auto-flow: column;
+  padding-top: 16px;
+  background: linear-gradient(#293a33, #293a33) 5px 6px / 40px 5px no-repeat, #fcfcf8;
+}
+
+.sample-gazette i {
+  background: repeating-linear-gradient(#9baba2 0 1px, transparent 1px 3px);
+}
+
+.sample-photo-story {
+  grid-template-columns: 5px 1fr;
+  grid-template-rows: 28px 5px 1fr;
+}
+
+.sample-photo-story i:nth-child(2) {
+  background: #588579;
+}
+
+.sample-photo-story i:nth-child(odd) {
+  background: #c8775f;
+}
+
+.sample-collage {
+  gap: 6px;
+  background: #e8eee8;
+}
+
+.sample-collage i {
+  border: 2px solid white;
+  border-bottom-width: 4px;
+  background: #729c8d;
+  transform: rotate(-8deg);
+}
+
+.sample-collage i:nth-child(even) {
+  transform: translateY(3px) rotate(7deg);
+  background: #d3b678;
+}
+
+.sample-journal {
+  grid-template-columns: 1fr;
+  grid-template-rows: repeat(6, 1fr);
+}
+
+.sample-conversation {
+  grid-template-columns: 1fr;
+  grid-template-rows: repeat(6, 1fr);
+}
+
+.sample-conversation i {
+  width: 75%;
+  border-radius: 2px;
+}
+
+.sample-conversation i:nth-child(even) {
+  justify-self: end;
+  background: #cdd8ba;
+}
+
+.style-preset-collection + .style-preset-collection {
+  margin-top: 20px;
+}
+
+.style-preset-collection h4 {
+  margin: 0 0 9px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
 .style-preset-list > button {
   min-width: 0;
-  min-height: 54px;
+  min-height: 76px;
   padding: 8px 10px;
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) 16px;
@@ -2736,25 +2874,48 @@ p {
 }
 
 .style-preset-list small {
-  overflow: hidden;
   color: var(--muted);
-  font-size: 8px;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 10px;
+  line-height: 1.4;
 }
 
-.style-preset-colors {
-  height: 28px;
+.style-preset-sample {
+  width: 40px;
+  height: 56px;
+  padding: 6px 5px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: 3px 22px 1fr;
+  gap: 4px;
   overflow: hidden;
   border: 1px solid rgba(38, 48, 45, 0.16);
-  border-radius: 3px;
+  border-radius: 1px;
+  color: var(--book-ink);
+  background-color: var(--book-paper);
+  background-image: var(--book-page-decoration);
+  background-size: 100% 100%;
+  font-family: var(--book-body-font);
 }
 
-.style-preset-colors i {
+.sample-date {
   display: block;
+  width: 65%;
+  background: var(--book-accent);
+}
+
+.sample-photo {
+  background: color-mix(in srgb, var(--book-accent) 24%, var(--book-paper));
+  border: 1px solid color-mix(in srgb, var(--book-ink) 20%, var(--book-paper));
+}
+
+.style-preset-sample.visual-scrapbook .sample-photo {
+  border: 2px solid white;
+  border-bottom-width: 5px;
+}
+
+.sample-lines {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
 }
 
 .style-layout-section .style-field-group + .style-page-fields {
@@ -3278,6 +3439,214 @@ p {
   flex: 0 0 auto;
 }
 
+.composed-page {
+  position: absolute;
+  inset: var(--composition-margin);
+  font-size: var(--composition-font-size);
+}
+
+.composition-heading {
+  height: var(--composition-header);
+  padding-bottom: 3mm;
+  overflow: hidden;
+  border-bottom: 0.4mm solid var(--book-readable-accent);
+}
+
+.composition-heading > span {
+  display: block;
+  margin-bottom: 1mm;
+  font-size: 7pt;
+  color: var(--book-muted-ink);
+}
+
+.composition-heading h2 {
+  font-family: var(--book-heading-font);
+  font-size: 17pt;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.composition-body {
+  position: absolute;
+  inset: calc(var(--composition-header) + var(--composition-header-gap, 3mm)) 0 6mm;
+}
+
+.composition-item {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  transform-origin: center;
+}
+
+.composition-date {
+  flex: 0 0 auto;
+  margin-bottom: 1.4mm;
+  color: var(--book-readable-accent);
+  font-size: 6.5pt;
+  line-height: 1.2;
+}
+
+.composition-item .book-message {
+  min-width: 0;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  font-size: var(--composition-font-size);
+}
+
+.composition-item .message-meta {
+  flex: 0 0 auto;
+  min-height: 3mm;
+  margin-bottom: 1.5mm;
+  font-size: 6.5pt;
+  line-height: 1.2;
+}
+
+.composition-item .message-copy p {
+  margin: 0;
+  font-size: var(--composition-font-size);
+  line-height: var(--book-line-height);
+  overflow-wrap: anywhere;
+}
+
+.composition-item .message-photo {
+  display: block;
+  flex: none;
+}
+
+.composition-item .photo-frame {
+  flex: none;
+  width: 100%;
+  height: var(--composition-photo-height);
+}
+
+.composition-item .message-photo figcaption {
+  margin-top: 2mm;
+  font-size: var(--composition-font-size);
+  line-height: var(--book-line-height);
+  overflow-wrap: anywhere;
+}
+
+.composition-gazette .composition-heading {
+  text-align: center;
+  border-top: 0.3mm solid var(--book-ink);
+  border-bottom: 1mm double var(--book-ink);
+  padding-top: 2mm;
+}
+
+.composition-gazette .composition-heading h2 {
+  font-family: 'Newsreader Variable', serif;
+  font-size: 20pt;
+  font-weight: 750;
+}
+
+.composition-gazette .composition-body::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  border-left: 0.15mm solid color-mix(in srgb, var(--book-ink) 24%, transparent);
+}
+
+.composition-gazette .composition-date {
+  padding-top: 1mm;
+  border-top: 0.2mm solid var(--book-ink);
+  text-transform: uppercase;
+}
+
+.composition-gazette .book-message {
+  font-family: 'Newsreader Variable', serif;
+}
+
+.composition-photo-story .composition-heading {
+  border: 0;
+}
+
+.composition-photo-story .composition-date {
+  visibility: hidden;
+}
+
+.composition-photo-story.has-full-page-photo .composition-date {
+  visibility: visible;
+}
+
+.composition-date-rail {
+  position: absolute;
+  left: -22mm;
+  top: 0;
+  width: 18mm;
+  display: grid;
+  gap: 1mm;
+  color: var(--book-readable-accent);
+}
+
+.composition-date-rail strong {
+  font-family: var(--book-heading-font);
+  font-size: 27pt;
+  line-height: 1;
+  font-weight: 500;
+}
+
+.composition-date-rail span {
+  font-size: 6.5pt;
+}
+
+.composition-collage .composition-heading {
+  border-bottom-style: dashed;
+  padding-bottom: 1mm;
+}
+
+.composition-collage .composition-heading h2 {
+  font-size: 14pt;
+}
+
+.composition-collage .composition-item {
+  padding: var(--composition-tile-padding);
+  color: var(--book-ink);
+  background: var(--book-note-paper);
+  box-shadow: 0.3mm 0.6mm 0 color-mix(in srgb, var(--book-ink) 12%, transparent);
+}
+
+.composition-collage .composition-item.has-photo {
+  background: white;
+}
+
+.composition-collage .message-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 1.5mm;
+  font-size: 6pt;
+  line-height: 1.15;
+}
+
+.composition-meta-date {
+  color: var(--book-readable-accent);
+}
+
+.composition-collage .composition-item.has-photo::before {
+  content: '';
+  position: absolute;
+  z-index: 3;
+  top: -1.5mm;
+  left: calc(50% - 9mm);
+  width: 18mm;
+  height: 4mm;
+  background: var(--book-tape-color);
+  opacity: 0.85;
+}
+
+.preview-page:not(.is-cover):not(.is-back-cover):not(:has(.book-editorial-page.is-blank)) {
+  background-image: var(--book-page-decoration, none);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+}
+
 .page-scale-shell > .preview-page {
   position: absolute;
   top: 0;
@@ -3308,6 +3677,17 @@ p {
 .page-bookmark-button svg {
   width: 15px;
   height: 15px;
+}
+
+.page-bookmark-button.is-in-toolbar {
+  position: static;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #c3cbc6;
+  border-radius: 4px;
+  opacity: 1;
+  transform: none;
 }
 
 .page-bookmark-button:hover,
@@ -3833,6 +4213,13 @@ p {
 
 .photo-frame-bordered .photo-frame {
   border: 1px solid color-mix(in srgb, var(--book-ink) 24%, var(--book-paper));
+}
+
+.visual-scrapbook.photo-frame-bordered .photo-frame {
+  border-width: var(--book-photo-mat-side);
+  border-bottom-width: var(--book-photo-mat-bottom);
+  border-color: var(--book-photo-mat-color);
+  border-radius: 0;
 }
 
 .photo-frame > img.is-rotation-90,
@@ -4695,9 +5082,9 @@ p {
   }
 
   .workspace-switcher {
-    grid-column: 1 / -1;
-    grid-row: 2;
     width: 100%;
+    padding: 6px 8px;
+    gap: 0;
   }
 
   .workspace-switcher > button {
@@ -4715,8 +5102,8 @@ p {
 
   .content-manager-button > span {
     position: absolute;
-    top: -5px;
-    right: -5px;
+    top: 0;
+    right: 0;
     font-size: 9px;
   }
 

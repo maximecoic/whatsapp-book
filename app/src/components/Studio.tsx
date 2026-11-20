@@ -1,6 +1,7 @@
 import {
   useDeferredValue,
   useEffect,
+  useMemo,
   useReducer,
   useRef,
   useState,
@@ -22,7 +23,6 @@ import {
   Palette,
   Redo2,
   RotateCcw,
-  SlidersHorizontal,
   Trash2,
   Undo2,
   Users,
@@ -76,12 +76,14 @@ import {
 } from '../lib/settings-history'
 import { BookPreview } from './BookPreview'
 import { ContentManager } from './ContentManager'
+import { CoverPanel } from './CoverPanel'
 import { EditorialPanel } from './EditorialPanel'
 import { PhotoInspector } from './PhotoInspector'
 import { StructureInspector } from './StructureInspector'
 import { StylePanel } from './StylePanel'
 import { PreflightDialog } from './PreflightDialog'
 import { PrintDocument } from './PrintDocument'
+import { getPhotoAspectRatios, inspectPhotoAspectRatio, usePhotoAspectRatios } from './usePhotoAspectRatios'
 
 interface StudioProps {
   archive: ChatArchive
@@ -89,7 +91,19 @@ interface StudioProps {
 }
 
 type SaveStatus = 'loading' | 'saving' | 'saved' | 'error'
-type WorkspacePanel = 'souvenirs' | 'organiser' | 'apparence'
+type WorkspacePanel = 'couverture' | 'souvenirs' | 'organiser' | 'apparence'
+
+const WORKSPACE_OPTIONS: Array<{
+  id: WorkspacePanel
+  label: string
+  icon: typeof BookOpen
+  className: string
+}> = [
+  { id: 'couverture', label: 'Couverture', icon: BookOpen, className: 'cover-panel-button' },
+  { id: 'souvenirs', label: 'Souvenirs', icon: ListFilter, className: 'content-manager-button' },
+  { id: 'organiser', label: 'Organiser', icon: BookOpenText, className: 'editorial-panel-button' },
+  { id: 'apparence', label: 'Apparence', icon: Palette, className: 'style-panel-button' },
+]
 
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => {
@@ -129,6 +143,8 @@ export function Studio({ archive, onReset }: StudioProps) {
     createSettingsHistory(createInitialSettings(archive.chat, archive.fileName)),
   )
   const settings = settingsHistory.present
+  const photoAspectRatios = usePhotoAspectRatios(archive)
+  const renderingSettings = useMemo(() => ({ ...settings, photoAspectRatios }), [settings, photoAspectRatios])
   const latestSettings = useRef(settings)
   latestSettings.current = settings
   const [pageIndex, setPageIndex] = useState(0)
@@ -138,6 +154,10 @@ export function Studio({ archive, onReset }: StudioProps) {
   const [selectedStructureId, setSelectedStructureId] = useState<string | null>(null)
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspacePanel | null>(null)
   const [contentInitialView, setContentInitialView] = useState<ContentView>('all')
+  const [contentQuery, setContentQuery] = useState('')
+  const [contentFiltersOpen, setContentFiltersOpen] = useState(false)
+  const contentScrollPosition = useRef(0)
+  const inspectorReturnWorkspace = useRef<WorkspacePanel | null>(null)
   const [projectMenuOpen, setProjectMenuOpen] = useState(false)
   const [editorialPageAnchorId, setEditorialPageAnchorId] = useState<string | null>(null)
   const [pendingPageBookmark, setPendingPageBookmark] = useState<{
@@ -164,7 +184,7 @@ export function Studio({ archive, onReset }: StudioProps) {
   } | null>(null)
   const cancelPrint = useRef(false)
   const projectMenuRef = useRef<HTMLDivElement>(null)
-  const deferredSettings = useDeferredValue(settings)
+  const deferredSettings = useDeferredValue(renderingSettings)
   const filteredMessages = filterMessages(archive.chat.messages, deferredSettings)
   const selectableMessages = filterMessages(archive.chat.messages, {
     ...deferredSettings,
@@ -806,6 +826,7 @@ export function Studio({ archive, onReset }: StudioProps) {
       Boolean(message.mediaName)
     )))
     if (targetPage < 0) return
+    inspectorReturnWorkspace.current = activeWorkspace
     setPageIndex(targetPage + 1)
     setSelectedPhotoId(messageId)
     setSelectedCoverMediaName(null)
@@ -819,6 +840,7 @@ export function Studio({ archive, onReset }: StudioProps) {
       (message.sourceMessageId ?? message.id) === messageId
     )))
     if (targetPage < 0) return
+    inspectorReturnWorkspace.current = activeWorkspace
     setPageIndex(targetPage + 1)
     setSelectedStructureId(messageId)
     setSelectedPhotoId(null)
@@ -829,6 +851,7 @@ export function Studio({ archive, onReset }: StudioProps) {
 
   const inspectCoverPhoto = (mediaName: string) => {
     if (!archive.chat.messages.some((message) => message.mediaName === mediaName)) return
+    inspectorReturnWorkspace.current = activeWorkspace
     setPageIndex(0)
     setSelectedCoverMediaName(mediaName)
     setSelectedBackCoverMediaName(null)
@@ -839,12 +862,39 @@ export function Studio({ archive, onReset }: StudioProps) {
 
   const inspectBackCoverPhoto = (mediaName: string) => {
     if (!archive.chat.messages.some((message) => message.mediaName === mediaName)) return
+    inspectorReturnWorkspace.current = activeWorkspace
     setPageIndex(pages.length + 1)
     setSelectedBackCoverMediaName(mediaName)
     setSelectedPhotoId(null)
     setSelectedCoverMediaName(null)
     setSelectedStructureId(null)
     setActiveWorkspace(null)
+  }
+
+  const closeInspector = () => {
+    setSelectedPhotoId(null)
+    setSelectedCoverMediaName(null)
+    setSelectedBackCoverMediaName(null)
+    setSelectedStructureId(null)
+    setActiveWorkspace(inspectorReturnWorkspace.current)
+    inspectorReturnWorkspace.current = null
+  }
+
+  const chooseCoverPhoto = () => {
+    setContentInitialView('photos')
+    setContentQuery('')
+    contentScrollPosition.current = 0
+    setActiveWorkspace('souvenirs')
+  }
+
+  const openWorkspace = (workspace: WorkspacePanel) => {
+    setSelectedPhotoId(null)
+    setSelectedCoverMediaName(null)
+    setSelectedBackCoverMediaName(null)
+    setSelectedStructureId(null)
+    setActiveWorkspace(workspace)
+    if (workspace === 'couverture') setPageIndex(0)
+    if (workspace === 'organiser') setEditorialPageAnchorId(null)
   }
 
   const resetStructure = (messageId: string) => {
@@ -1036,11 +1086,6 @@ export function Studio({ archive, onReset }: StudioProps) {
       archive.chat.messages,
       snapshotSettings,
     )
-    const snapshotPages = paginateMessages(
-      snapshotMessages,
-      snapshotSettings,
-    )
-
     try {
       const mediaNames = [
         ...new Set(
@@ -1056,7 +1101,7 @@ export function Studio({ archive, onReset }: StudioProps) {
           return
         }
         const batch = mediaNames.slice(index, index + 4)
-        await Promise.all(batch.map((name) => archive.getMediaUrl(name)))
+        await Promise.all(batch.map((name) => inspectPhotoAspectRatio(archive, name)))
         setPrintProgress(Math.round(((index + batch.length) / mediaNames.length) * 88))
       }
 
@@ -1066,9 +1111,12 @@ export function Studio({ archive, onReset }: StudioProps) {
       }
 
       setPrintSnapshot({
-        settings: snapshotSettings,
+        settings: { ...snapshotSettings, photoAspectRatios: getPhotoAspectRatios(archive) },
         messages: snapshotMessages,
-        pages: snapshotPages,
+        pages: paginateMessages(snapshotMessages, {
+          ...snapshotSettings,
+          photoAspectRatios: getPhotoAspectRatios(archive),
+        }),
       })
       setPrintProgress(92)
       await nextFrame()
@@ -1222,61 +1270,10 @@ export function Studio({ archive, onReset }: StudioProps) {
                     : 'Non sauvegardé'}
             </span>
           </span>
-          <div className="workspace-switcher" role="group" aria-label="Espace de travail">
-            <button
-              type="button"
-              className={`content-manager-button${activeWorkspace === 'souvenirs' ? ' is-active' : ''}`}
-              aria-pressed={activeWorkspace === 'souvenirs'}
-              onClick={() => {
-                setSelectedPhotoId(null)
-                setSelectedCoverMediaName(null)
-                setSelectedBackCoverMediaName(null)
-                setSelectedStructureId(null)
-                setContentInitialView('all')
-                setActiveWorkspace((current) => current === 'souvenirs' ? null : 'souvenirs')
-              }}
-            >
-              <ListFilter size={16} aria-hidden="true" />
-              Souvenirs
-              {settings.excludedMessageIds.length ? (
-                <span>{settings.excludedMessageIds.length}</span>
-              ) : null}
-            </button>
-            <button
-              type="button"
-              className={`editorial-panel-button${activeWorkspace === 'organiser' ? ' is-active' : ''}`}
-              aria-pressed={activeWorkspace === 'organiser'}
-              onClick={() => {
-                setSelectedPhotoId(null)
-                setSelectedCoverMediaName(null)
-                setSelectedBackCoverMediaName(null)
-                setSelectedStructureId(null)
-                setEditorialPageAnchorId(null)
-                setActiveWorkspace((current) => current === 'organiser' ? null : 'organiser')
-              }}
-            >
-              <BookOpenText size={16} aria-hidden="true" />
-              Organiser
-            </button>
-            <button
-              type="button"
-              className={`style-panel-button${activeWorkspace === 'apparence' ? ' is-active' : ''}`}
-              aria-pressed={activeWorkspace === 'apparence'}
-              onClick={() => {
-                setSelectedPhotoId(null)
-                setSelectedCoverMediaName(null)
-                setSelectedBackCoverMediaName(null)
-                setSelectedStructureId(null)
-                setActiveWorkspace((current) => current === 'apparence' ? null : 'apparence')
-              }}
-            >
-              <Palette size={16} aria-hidden="true" />
-              Apparence
-            </button>
-          </div>
           <button
             type="button"
             className="button export-button"
+            aria-label="Créer le PDF"
             disabled={isPreparingPrint || isGeneratingPdf || !hasPrintableContent}
             onClick={() => void preparePrint()}
           >
@@ -1286,38 +1283,42 @@ export function Studio({ archive, onReset }: StudioProps) {
         </div>
       </div>
 
+      <nav className="workspace-switcher" aria-label="Réglages du livre">
+        {WORKSPACE_OPTIONS.map(({ id, label, icon: Icon, className }) => {
+          const isActive = (activeWorkspace ?? 'couverture') === id
+          return (
+            <button
+              key={id}
+              type="button"
+              className={`${className}${isActive ? ' is-active' : ''}`}
+              aria-pressed={isActive}
+              onClick={() => openWorkspace(id)}
+            >
+              <Icon size={16} aria-hidden="true" />
+              {label}
+              {id === 'souvenirs' && settings.excludedMessageIds.length > 0 ? (
+                <span>{settings.excludedMessageIds.length}</span>
+              ) : null}
+            </button>
+          )
+        })}
+      </nav>
+
       {printError ? <p className="print-error" role="alert">{printError}</p> : null}
 
       <div className={`studio-layout${activeWorkspace ? ' has-content-panel' : ''}`}>
-        <aside className="settings-panel" aria-label="Réglages essentiels du livre">
-          <div className="panel-title">
-            <SlidersHorizontal size={17} aria-hidden="true" />
-            <h2>Essentiels</h2>
-          </div>
-
-          <section className="setting-section">
-            <h3>Couverture</h3>
-            <label className="field-label">
-              Titre
-              <input
-                type="text"
-                value={settings.title}
-                maxLength={72}
-                onChange={(event) => updateSetting('title', event.target.value)}
-              />
-            </label>
-            <label className="field-label">
-              Sous-titre
-              <input
-                type="text"
-                value={settings.subtitle}
-                maxLength={100}
-                onChange={(event) => updateSetting('subtitle', event.target.value)}
-              />
-            </label>
-          </section>
-
-        </aside>
+        {activeWorkspace === null || activeWorkspace === 'couverture' ? (
+          <CoverPanel
+            title={settings.title}
+            subtitle={settings.subtitle}
+            hasPhoto={Boolean(activeCoverMediaName)}
+            isOpen={activeWorkspace === 'couverture'}
+            onTitleChange={(title) => updateSetting('title', title)}
+            onSubtitleChange={(subtitle) => updateSetting('subtitle', subtitle)}
+            onChoosePhoto={chooseCoverPhoto}
+            onClose={() => setActiveWorkspace(null)}
+          />
+        ) : null}
 
         <div className="preview-column">
           <div className="selection-summary">
@@ -1358,7 +1359,19 @@ export function Studio({ archive, onReset }: StudioProps) {
             excludedMessageIds={settings.excludedMessageIds}
             coverMediaName={settings.coverMediaName}
             backCoverMediaName={settings.backCover.mediaName}
-            initialView={contentInitialView}
+            view={contentInitialView}
+            query={contentQuery}
+            scrollPosition={contentScrollPosition}
+            filtersOpen={contentFiltersOpen}
+            onFiltersOpenChange={setContentFiltersOpen}
+            onViewChange={(view) => {
+              contentScrollPosition.current = 0
+              setContentInitialView(view)
+            }}
+            onQueryChange={(query) => {
+              contentScrollPosition.current = 0
+              setContentQuery(query)
+            }}
             photoOverrides={settings.photoOverrides}
             captionOverrides={settings.captionOverrides}
             participantProfiles={settings.participantProfiles}
@@ -1424,6 +1437,8 @@ export function Studio({ archive, onReset }: StudioProps) {
             onAccentChange={(accent) => updateSetting('accent', accent)}
             onChooseBackCoverPhoto={() => {
               setContentInitialView('photos')
+              setContentQuery('')
+              contentScrollPosition.current = 0
               setActiveWorkspace('souvenirs')
             }}
             onSettingChange={updateSetting}
@@ -1442,7 +1457,7 @@ export function Studio({ archive, onReset }: StudioProps) {
             changes,
             historyKey,
           )}
-          onClose={() => setSelectedPhotoId(null)}
+          onClose={closeInspector}
           onReset={() => resetPhotoOverride(selectedPhotoMessage.id)}
           onCaptionChange={(caption) => updateCaptionOverride(
             selectedPhotoMessage.id,
@@ -1461,7 +1476,7 @@ export function Studio({ archive, onReset }: StudioProps) {
             changes,
             historyKey,
           )}
-          onClose={() => setSelectedCoverMediaName(null)}
+          onClose={closeInspector}
           onReset={() => resetCoverPhotoOverride(selectedCoverPhotoMessage.mediaName!)}
         />
       ) : null}
@@ -1476,7 +1491,7 @@ export function Studio({ archive, onReset }: StudioProps) {
             changes,
             historyKey,
           )}
-          onClose={() => setSelectedBackCoverMediaName(null)}
+          onClose={closeInspector}
           onReset={() => resetBackCoverPhotoOverride(selectedBackCoverPhotoMessage.mediaName!)}
         />
       ) : null}
@@ -1493,7 +1508,7 @@ export function Studio({ archive, onReset }: StudioProps) {
           onSetBookmark={(label) => setBookmark(selectedStructureMessage.id, label)}
           onAddEditorialPage={() => addEditorialPageBefore(selectedStructureMessage.id)}
           onReset={() => resetStructure(selectedStructureMessage.id)}
-          onClose={() => setSelectedStructureId(null)}
+          onClose={closeInspector}
         />
       ) : null}
 

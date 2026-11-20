@@ -4,7 +4,6 @@ import {
   ArrowRight,
   BookOpenCheck,
   Clock3,
-  FileArchive,
   Image,
   LoaderCircle,
   LockKeyhole,
@@ -36,16 +35,20 @@ export function ImportView({
   onCancelProject,
 }: ImportViewProps) {
   const inputRef = useRef<HTMLInputElement>(null)
-  const projectInputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setIsDragging] = useState(false)
+
+  const openFile = (file: File) => {
+    if (isImporting) return
+    if (file.name.toLowerCase().endsWith('.chatbound')) onProjectFile(file)
+    else onFile(file)
+  }
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     setIsDragging(false)
     const file = event.dataTransfer.files[0]
     if (!file) return
-    if (file.name.toLowerCase().endsWith('.chatbound')) onProjectFile(file)
-    else onFile(file)
+    openFile(file)
   }
 
   return (
@@ -84,12 +87,12 @@ export function ImportView({
           <div className="step-number">{pendingProject ? '02' : '01'}</div>
           <div>
             <h2 id="import-title">
-              {pendingProject ? 'Rattachez l’archive' : 'Importez la conversation'}
+              {pendingProject ? 'Retrouvez votre conversation' : 'Ouvrir un livre'}
             </h2>
             <p>
               {pendingProject
                 ? 'Le contenu privé reste dans le ZIP d’origine.'
-                : 'Utilisez l’archive ZIP complète avec ses médias.'}
+                : 'Archive WhatsApp ZIP ou projet Chatbound.'}
             </p>
           </div>
         </div>
@@ -129,10 +132,11 @@ export function ImportView({
           <input
             ref={inputRef}
             type="file"
-            accept=".zip,application/zip,application/x-zip-compressed"
+            accept={pendingProject ? '.zip,application/zip,application/x-zip-compressed' : '.zip,.chatbound,application/zip,application/x-zip-compressed,application/json'}
+            disabled={isImporting}
             onChange={(event) => {
               const file = event.target.files?.[0]
-              if (file) onFile(file)
+              if (file) openFile(file)
               event.target.value = ''
             }}
           />
@@ -149,7 +153,7 @@ export function ImportView({
                 ? 'Lecture de l’archive…'
                 : pendingProject
                   ? 'Déposez le ZIP correspondant'
-                  : 'Déposez votre archive ZIP'}
+                  : 'Déposez votre archive ou projet'}
             </strong>
             <span>
               {pendingProject
@@ -164,33 +168,12 @@ export function ImportView({
             onClick={() => inputRef.current?.click()}
           >
             <Archive size={17} aria-hidden="true" />
-            Choisir l’archive
+            {pendingProject ? 'Choisir le ZIP d’origine' : 'Ouvrir un fichier'}
             <ArrowRight size={16} aria-hidden="true" />
           </button>
         </div>
 
         {error ? <p className="import-error" role="alert">{error}</p> : null}
-
-        <div className="project-entry-points">
-          <input
-            ref={projectInputRef}
-            type="file"
-            accept=".chatbound,application/json"
-            onChange={(event) => {
-              const file = event.target.files?.[0]
-              if (file) onProjectFile(file)
-              event.target.value = ''
-            }}
-          />
-          <button
-            type="button"
-            className="project-open-button"
-            onClick={() => projectInputRef.current?.click()}
-          >
-            <FileArchive size={16} aria-hidden="true" />
-            Ouvrir un projet .chatbound
-          </button>
-        </div>
 
         {!pendingProject && recentProjects.length ? (
           <div className="recent-projects">
@@ -202,6 +185,7 @@ export function ImportView({
               <button
                 type="button"
                 key={project.projectId}
+                disabled={isImporting}
                 onClick={() => onSelectRecent(project)}
               >
                 <span>

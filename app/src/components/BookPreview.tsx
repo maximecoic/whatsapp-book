@@ -35,6 +35,7 @@ import {
   type BookDateStyle,
 } from '../lib/book-style'
 import { MediaImage } from './MediaImage'
+import { isDesignedComposition, layoutCompositionPage } from '../lib/book-composition'
 
 const CSS_PIXELS_PER_MM = 96 / 25.4
 const SPREAD_GAP_PX = 12
@@ -112,6 +113,7 @@ function MessageEntry({
   onSelectPhoto,
   selectedStructureId,
   onSelectStructure,
+  showDate = false,
 }: {
   archive: ChatArchive
   message: ChatMessage
@@ -122,6 +124,7 @@ function MessageEntry({
   onSelectPhoto?(messageId: string): void
   selectedStructureId?: string | null
   onSelectStructure?(messageId: string): void
+  showDate?: boolean
 }) {
   const mediaAlt = `Photo partagée par ${message.sender ?? 'un participant'}`
   const sourceMessageId = message.sourceMessageId ?? message.id
@@ -156,6 +159,11 @@ function MessageEntry({
       style={messageStyle}
     >
       <div className="message-meta">
+        {showDate ? (
+          <time className="composition-meta-date" dateTime={new Date(message.timestamp).toISOString()}>
+            {formatBookDate(message.timestamp, settings.artDirection.dateStyle)}
+          </time>
+        ) : null}
         <strong>{participantProfile?.displayName.trim() || message.sender || 'WhatsApp'}</strong>
         <time dateTime={new Date(message.timestamp).toISOString()}>
           {time.format(message.timestamp)}
@@ -303,6 +311,75 @@ export function BookContentPage({
   }
 
   const participants = archive.chat.participants
+  if (isDesignedComposition(settings.theme)) {
+    const layout = layoutCompositionPage(messages, {
+      theme: settings.theme,
+      ...getPageDimensions(settings.format, settings.orientation),
+      fontScale: settings.fontScale,
+      lineHeight: settings.artDirection.lineHeight,
+      photoOverrides: settings.photoOverrides,
+      photoAspectRatios: settings.photoAspectRatios,
+    })
+    return (
+      <div
+        className={`composed-page composition-${settings.theme}${layout.fullPagePhoto ? ' has-full-page-photo' : ''}`}
+        style={{
+          '--composition-margin': `${layout.marginMm}mm`,
+          '--composition-header': `${layout.headerMm}mm`,
+          '--composition-header-gap': `${layout.headerGapMm}mm`,
+          '--composition-font-size': `${layout.fontPt}pt`,
+          '--composition-tile-padding': `${layout.tilePaddingMm}mm`,
+        } as CSSProperties}
+      >
+        {layout.headerMm > 0 ? (
+          <header className="composition-heading">
+            <span>{messages[0]?.chapterTitle ? 'Chapitre' : settings.subtitle}</span>
+            <h2>{messages[0]?.chapterTitle || settings.title}</h2>
+          </header>
+        ) : null}
+        <div className="composition-body">
+          {layout.items.map((item) => (
+            <section
+              key={item.message.id}
+              className={`composition-item${item.message.mediaName ? ' has-photo' : ' is-note'}`}
+              style={{
+                left: `${item.xMm}mm`,
+                top: `${item.yMm}mm`,
+                width: `${item.widthMm}mm`,
+                height: `${item.heightMm}mm`,
+                '--composition-photo-height': `${item.photoHeightMm}mm`,
+                transform: `rotate(${item.rotation}deg)`,
+              } as CSSProperties}
+            >
+              {settings.theme === 'photo-story' && !layout.fullPagePhoto ? (
+                <time className="composition-date-rail" dateTime={new Date(item.message.timestamp).toISOString()}>
+                  <strong>{new Date(item.message.timestamp).getDate().toString().padStart(2, '0')}</strong>
+                  <span>{new Intl.DateTimeFormat('fr-FR', { month: 'short', year: 'numeric' }).format(item.message.timestamp)}</span>
+                </time>
+              ) : null}
+              {settings.theme !== 'collage' ? (
+                <div className="composition-date">
+                  {formatBookDate(item.message.timestamp, settings.artDirection.dateStyle)}
+                </div>
+              ) : null}
+              <MessageEntry
+                archive={archive}
+                message={item.message}
+                alternate={item.message.sender ? participants.indexOf(item.message.sender) % 2 === 1 : false}
+                albumWide={false}
+                settings={settings}
+                selectedPhotoId={selectedPhotoId}
+                onSelectPhoto={onSelectPhoto}
+                selectedStructureId={selectedStructureId}
+                onSelectStructure={onSelectStructure}
+                showDate={settings.theme === 'collage'}
+              />
+            </section>
+          ))}
+        </div>
+      </div>
+    )
+  }
   const isFullPagePhoto = Boolean(
     messages.length === 1 &&
     messages[0].mediaName &&
@@ -559,6 +636,53 @@ export function BookBackCover({
   )
 }
 
+function PageBookmarkControl({
+  pages,
+  settings,
+  pageIndex,
+  onSetPageBookmark,
+  inToolbar = false,
+}: {
+  pages: ChatMessage[][]
+  settings: BookSettings
+  pageIndex: number
+  onSetPageBookmark: NonNullable<BookPreviewProps['onSetPageBookmark']>
+  inToolbar?: boolean
+}) {
+  const pageMessages = pages[pageIndex - 1] ?? []
+  const bookmarkTarget = pageMessages.find((message) => (
+    !message.editorial && (!message.continuation || message.continuation.part === 1)
+  )) ?? pageMessages.find((message) => !message.editorial)
+  if (!bookmarkTarget) return null
+  const bookmarkTargetId = bookmarkTarget.sourceMessageId ?? bookmarkTarget.id
+  const bookmarkTargetPart = (bookmarkTarget.continuation?.part ?? 1) > 1
+    ? bookmarkTarget.continuation!.part
+    : undefined
+  const pageBookmark = settings.bookmarks.find((bookmark) => (
+    getBookmarkPageIndex(pages, bookmark) === pageIndex - 1
+  ))
+  const bookmarkLabel = pageMessages[0]?.chapterTitle ||
+    `Souvenir du ${shortDate.format(bookmarkTarget.timestamp)}`
+  return (
+    <button
+      type="button"
+      className={`page-bookmark-button${inToolbar ? ' is-in-toolbar' : ''}${pageBookmark ? ' is-active' : ''}`}
+      data-bookmark-message-id={pageBookmark?.messageId ?? bookmarkTargetId}
+      data-bookmark-continuation-part={pageBookmark?.continuationPart ?? bookmarkTargetPart}
+      aria-label={pageBookmark ? `Retirer le signet de la page ${pageIndex}` : `Signaler la page ${pageIndex}`}
+      title={pageBookmark ? `Retirer le signet de la page ${pageIndex}` : `Signaler la page ${pageIndex}`}
+      aria-pressed={Boolean(pageBookmark)}
+      onClick={() => onSetPageBookmark(
+        pageBookmark?.messageId ?? bookmarkTargetId,
+        pageBookmark ? null : bookmarkLabel,
+        pageBookmark?.continuationPart ?? bookmarkTargetPart,
+      )}
+    >
+      <Bookmark size={15} fill="currentColor" />
+    </button>
+  )
+}
+
 function PreviewPageView({
   archive,
   settings,
@@ -586,24 +710,6 @@ function PreviewPageView({
   const pageMessages = pageIndex > 0 && pageIndex <= pages.length
     ? pages[pageIndex - 1] ?? []
     : []
-  const bookmarkTarget = pageMessages.find((message) => (
-    !message.editorial && (!message.continuation || message.continuation.part === 1)
-  )) ?? pageMessages.find((message) => !message.editorial)
-  const bookmarkTargetId = bookmarkTarget
-    ? bookmarkTarget.sourceMessageId ?? bookmarkTarget.id
-    : null
-  const bookmarkTargetPart = bookmarkTarget && (bookmarkTarget.continuation?.part ?? 1) > 1
-    ? bookmarkTarget.continuation!.part
-    : undefined
-  const pageBookmark = settings.bookmarks.find((bookmark) => (
-    getBookmarkPageIndex(pages, bookmark) === pageIndex - 1
-  ))
-  const bookmarkLabel = pageMessages[0]?.chapterTitle || (
-    bookmarkTarget
-      ? `Souvenir du ${shortDate.format(bookmarkTarget.timestamp)}`
-      : 'Page signalée'
-  )
-
   return (
     <div className="page-scale-shell" style={pageShellStyle}>
       <div
@@ -642,25 +748,13 @@ function PreviewPageView({
             {pageMessages[0]?.editorial?.kind !== 'blank' ? (
               <span className="book-page-number">{pageIndex}</span>
             ) : null}
-            {onSetPageBookmark && bookmarkTargetId ? (
-              <button
-                type="button"
-                className={`page-bookmark-button${pageBookmark ? ' is-active' : ''}`}
-                data-bookmark-message-id={pageBookmark?.messageId ?? bookmarkTargetId}
-                data-bookmark-continuation-part={pageBookmark?.continuationPart ?? bookmarkTargetPart}
-                aria-label={pageBookmark
-                  ? `Retirer le signet de la page ${pageIndex}`
-                  : `Signaler la page ${pageIndex}`}
-                title={pageBookmark ? 'Retirer le signet' : 'Signaler cette page'}
-                aria-pressed={Boolean(pageBookmark)}
-                onClick={() => onSetPageBookmark(
-                  pageBookmark?.messageId ?? bookmarkTargetId,
-                  pageBookmark ? null : bookmarkLabel,
-                  pageBookmark?.continuationPart ?? bookmarkTargetPart,
-                )}
-              >
-                <Bookmark size={15} fill="currentColor" />
-              </button>
+            {onSetPageBookmark && settings.theme !== 'collage' ? (
+              <PageBookmarkControl
+                pages={pages}
+                settings={settings}
+                pageIndex={pageIndex}
+                onSetPageBookmark={onSetPageBookmark}
+              />
             ) : null}
           </>
         )}
@@ -781,7 +875,7 @@ export function BookPreview({
     '--book-accent': settings.accent,
     '--book-font-scale': settings.fontScale,
     '--preview-inverse-scale': 1 / previewScale,
-    ...getBookStyleVariables(settings.artDirection, settings.accent),
+    ...getBookStyleVariables(settings.artDirection, settings.accent, dimensions),
     width: `${dimensions.widthMm}mm`,
     height: `${dimensions.heightMm}mm`,
     transform: `scale(${previewScale})`,
@@ -809,6 +903,16 @@ export function BookPreview({
         >
           <BookOpen size={15} aria-hidden="true" />
         </button>
+        {settings.theme === 'collage' && onSetPageBookmark ? visiblePageIndices.map((visiblePageIndex) => (
+          <PageBookmarkControl
+            key={visiblePageIndex}
+            pages={pages}
+            settings={settings}
+            pageIndex={visiblePageIndex}
+            onSetPageBookmark={onSetPageBookmark}
+            inToolbar
+          />
+        )) : null}
         {navigationEntries.length > 1 ? (
           <label className="book-navigation-select">
             <ListTree size={14} aria-hidden="true" />

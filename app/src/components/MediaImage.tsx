@@ -1,6 +1,7 @@
 import { ImageOff } from 'lucide-react'
 import { useEffect, useState, type CSSProperties } from 'react'
 import type { ChatArchive } from '../lib/archive-reader'
+import { recordPhotoAspectRatio } from './usePhotoAspectRatios'
 
 interface MediaImageProps {
   archive: ChatArchive
@@ -55,6 +56,12 @@ export function MediaImage({
       src={source}
       alt={alt}
       style={style}
+      onLoad={(event) => recordPhotoAspectRatio(
+        archive,
+        name,
+        event.currentTarget.naturalWidth,
+        event.currentTarget.naturalHeight,
+      )}
       onError={() => {
         setSource(null)
         setFailed(true)

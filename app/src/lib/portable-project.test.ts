@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createInitialSettings } from './book-model'
+import { BOOK_STYLE_PRESETS, clonePresetArtDirection } from './book-style'
 import type { ParsedChat } from './chat-types'
 import {
   parsePortableProject,
@@ -17,6 +18,35 @@ const chat: ParsedChat = {
 }
 
 describe('portable project', () => {
+  it.each(['gazette', 'photo-story', 'collage'] as const)(
+    'round-trips the %s page composition',
+    (theme) => {
+      const settings = { ...createInitialSettings(chat, 'conversation.zip'), theme }
+      const project = parsePortableProject(serializePortableProject({
+        projectId: 'chat-abc12345-project',
+        archiveName: 'conversation.zip',
+        settings,
+      }))
+      expect(project.settings.theme).toBe(theme)
+    },
+  )
+
+  it.each(['bullet', 'travel', 'scrapbook'] as const)(
+    'round-trips the %s journaling theme',
+    (preset) => {
+      const settings = createInitialSettings(chat, 'conversation.zip')
+      settings.artDirection = clonePresetArtDirection(preset)
+      settings.accent = BOOK_STYLE_PRESETS[preset].accent
+      const parsed = parsePortableProject(serializePortableProject({
+        projectId: 'chat-abc12345-project',
+        archiveName: 'conversation.zip',
+        settings,
+      }))
+      expect(parsed.settings.artDirection).toEqual(settings.artDirection)
+      expect(parsed.settings.accent).toBe(settings.accent)
+    },
+  )
+
   it('round-trips versioned settings without private chat content', () => {
     const settings = createInitialSettings(chat, 'conversation.zip')
     settings.title = 'Notre livre'

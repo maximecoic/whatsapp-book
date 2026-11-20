@@ -1,11 +1,12 @@
 import {
   BookOpen,
+  Camera,
   Check,
   Contrast,
   Frame,
-  Image,
   LayoutTemplate,
-  MessageSquareText,
+  Layers3,
+  Newspaper,
   Palette,
   RectangleHorizontal,
   RectangleVertical,
@@ -28,6 +29,8 @@ import {
   bestContrastText,
   contrastRatio,
   ensureReadableColor,
+  getBookStyleClassName,
+  getBookStyleVariables,
   type BookArtDirection,
   type BookDateStyle,
   type BookDensity,
@@ -67,11 +70,13 @@ const ACCENTS = ['#e6503f', '#176b67', '#d0912f', '#315fa7', '#9d4561']
 const THEMES: Array<{
   value: BookTheme
   label: string
+  description: string
   icon: typeof BookOpen
 }> = [
-  { value: 'journal', label: 'Carnet', icon: BookOpen },
-  { value: 'conversation', label: 'Messages', icon: MessageSquareText },
-  { value: 'album', label: 'Album', icon: Image },
+  { value: 'gazette', label: 'Gazette', description: 'Manchette, deux colonnes et filets de presse.', icon: Newspaper },
+  { value: 'photo-story', label: 'Récit photo', description: 'Grandes images et dates en marge du récit.', icon: Camera },
+  { value: 'collage', label: 'Collage', description: 'Photos montées, papiers et notes décalées.', icon: Layers3 },
+  { value: 'journal', label: 'Carnet', description: 'Le fil chronologique, au rythme des journées.', icon: BookOpen },
 ]
 
 function photoDensityLabel(maxPhotosPerPage: number): string {
@@ -175,28 +180,86 @@ export function StylePanel({
         </header>
 
         <div className="style-panel-content">
+          <section className="style-section">
+            <div className="style-section-heading">
+              <LayoutTemplate size={16} aria-hidden="true" />
+              <h3>Composition</h3>
+            </div>
+            <div className="composition-choices" role="group" aria-label="Composition du livre">
+              {THEMES.map(({ value, label, description, icon: Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={settings.theme === value ? 'is-active' : ''}
+                  aria-pressed={settings.theme === value}
+                  onClick={() => onSettingChange('theme', value)}
+                >
+                  <span className={`composition-choice-sample sample-${value}`} aria-hidden="true">
+                    {Array.from({ length: 6 }, (_, index) => <i key={index} />)}
+                  </span>
+                  <span className="composition-choice-copy">
+                    <strong><Icon size={14} aria-hidden="true" />{label}</strong>
+                    <small>{description}</small>
+                  </span>
+                  {settings.theme === value ? <Check size={15} aria-hidden="true" /> : <span />}
+                </button>
+              ))}
+            </div>
+          </section>
+          <details className="style-advanced composition-ambience">
+            <summary>
+              <Palette size={16} aria-hidden="true" />
+              <span><strong>Couleurs et typographie</strong><small>{preset.label}</small></span>
+            </summary>
+          <section className="style-section">
+            {([
+              { id: 'journaling', label: 'Journaling' },
+              { id: 'editorial', label: 'Classiques' },
+            ] as const).map((collection) => (
+              <div className="style-preset-collection" key={collection.id}>
+                <h4>{collection.label}</h4>
+                <div className="style-preset-list" role="group" aria-label={collection.label}>
+                  {(Object.keys(BOOK_STYLE_PRESETS) as BookVisualPreset[])
+                    .filter((value) => BOOK_STYLE_PRESETS[value].collection === collection.id)
+                    .map((value) => {
+                      const definition = BOOK_STYLE_PRESETS[value]
+                      return (
+                        <button
+                          type="button"
+                          className={artDirection.preset === value ? 'is-active' : ''}
+                          aria-pressed={artDirection.preset === value}
+                          key={value}
+                          onClick={() => onApplyPreset(value)}
+                        >
+                          <span
+                            className={`style-preset-sample ${getBookStyleClassName(definition.artDirection)}`}
+                            style={{
+                              ...getBookStyleVariables(definition.artDirection, definition.accent),
+                              '--book-accent': definition.accent,
+                            } as CSSProperties}
+                            aria-hidden="true"
+                          >
+                            <span className="sample-date" />
+                            <span className="sample-photo" />
+                            <span className="sample-lines">Aa</span>
+                          </span>
+                          <span>
+                            <strong>{definition.label}</strong>
+                            <small>{definition.description}</small>
+                          </span>
+                          {artDirection.preset === value ? <Check size={14} /> : null}
+                        </button>
+                      )
+                    })}
+                </div>
+              </div>
+            ))}
+          </section>
+          </details>
           <section className="style-section style-layout-section">
             <div className="style-section-heading">
               <LayoutTemplate size={16} aria-hidden="true" />
               <h3>Mise en page</h3>
-            </div>
-
-            <div className="style-field-group">
-              <span>Mode de composition</span>
-              <div className="theme-selector" role="group" aria-label="Mode de composition">
-                {THEMES.map(({ value, label, icon: Icon }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={settings.theme === value ? 'is-active' : ''}
-                    aria-pressed={settings.theme === value}
-                    onClick={() => onSettingChange('theme', value)}
-                  >
-                    <Icon size={16} aria-hidden="true" />
-                    {label}
-                  </button>
-                ))}
-              </div>
             </div>
 
             <div className="inline-fields style-page-fields">
@@ -272,52 +335,25 @@ export function StylePanel({
                 />
               </label>
               <div
-                className="photo-density-preview"
+                className={`photo-density-preview${settings.theme === 'collage' ? ' is-adaptive-collage' : ''}`}
                 style={{
                   '--photo-density-columns': settings.maxPhotosPerPage === 1
                     ? 1
-                    : settings.maxPhotosPerPage <= 4
+                    : settings.maxPhotosPerPage <= 4 || settings.theme === 'collage'
                       ? 2
                       : 3,
                 } as CSSProperties}
                 aria-hidden="true"
               >
                 {Array.from({ length: settings.maxPhotosPerPage }, (_, index) => (
-                  <span key={index} />
+                  <span
+                    key={index}
+                    style={settings.theme === 'collage' && settings.maxPhotosPerPage % 2 === 1 && index === settings.maxPhotosPerPage - 1
+                      ? { gridColumn: '1 / -1' }
+                      : undefined}
+                  />
                 ))}
               </div>
-            </div>
-          </section>
-
-          <section className="style-section">
-            <div className="style-section-heading">
-              <Palette size={16} aria-hidden="true" />
-              <h3>Univers</h3>
-            </div>
-            <div className="style-preset-list">
-              {(Object.keys(BOOK_STYLE_PRESETS) as BookVisualPreset[]).map((value) => {
-                const definition = BOOK_STYLE_PRESETS[value]
-                return (
-                  <button
-                    type="button"
-                    className={artDirection.preset === value ? 'is-active' : ''}
-                    aria-pressed={artDirection.preset === value}
-                    key={value}
-                    onClick={() => onApplyPreset(value)}
-                  >
-                    <span className="style-preset-colors" aria-hidden="true">
-                      <i style={{ background: definition.artDirection.paperColor }} />
-                      <i style={{ background: definition.accent }} />
-                      <i style={{ background: definition.artDirection.inkColor }} />
-                    </span>
-                    <span>
-                      <strong>{definition.label}</strong>
-                      <small>{definition.description}</small>
-                    </span>
-                    {artDirection.preset === value ? <Check size={14} /> : null}
-                  </button>
-                )
-              })}
             </div>
           </section>
 

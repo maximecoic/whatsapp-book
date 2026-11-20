@@ -4,6 +4,9 @@ export type BookVisualPreset =
   | 'correspondence'
   | 'graphic'
   | 'minimal'
+  | 'bullet'
+  | 'travel'
+  | 'scrapbook'
 
 export type BookFontPair = 'editorial' | 'literary' | 'modern' | 'correspondence'
 export type BookDensity = 'airy' | 'balanced' | 'compact'
@@ -40,6 +43,7 @@ export interface BookArtDirection {
 export interface BookStylePresetDefinition {
   label: string
   description: string
+  collection: 'editorial' | 'journaling'
   accent: string
   artDirection: BookArtDirection
 }
@@ -47,6 +51,7 @@ export interface BookStylePresetDefinition {
 export const BOOK_STYLE_PRESETS: Record<BookVisualPreset, BookStylePresetDefinition> = {
   timeless: {
     label: 'Intemporel',
+    collection: 'editorial',
     description: 'Éditorial, chaleureux et équilibré.',
     accent: '#e6503f',
     artDirection: {
@@ -69,6 +74,7 @@ export const BOOK_STYLE_PRESETS: Record<BookVisualPreset, BookStylePresetDefinit
   },
   modern: {
     label: 'Moderne',
+    collection: 'editorial',
     description: 'Net, direct et contemporain.',
     accent: '#176b67',
     artDirection: {
@@ -91,6 +97,7 @@ export const BOOK_STYLE_PRESETS: Record<BookVisualPreset, BookStylePresetDefinit
   },
   correspondence: {
     label: 'Correspondance',
+    collection: 'editorial',
     description: 'Littéraire, intime et aéré.',
     accent: '#9d4561',
     artDirection: {
@@ -113,6 +120,7 @@ export const BOOK_STYLE_PRESETS: Record<BookVisualPreset, BookStylePresetDefinit
   },
   graphic: {
     label: 'Graphique',
+    collection: 'editorial',
     description: 'Contrasté, dense et affirmé.',
     accent: '#315fa7',
     artDirection: {
@@ -135,6 +143,7 @@ export const BOOK_STYLE_PRESETS: Record<BookVisualPreset, BookStylePresetDefinit
   },
   minimal: {
     label: 'Minimal',
+    collection: 'editorial',
     description: 'Calme, blanc et essentiel.',
     accent: '#46534f',
     artDirection: {
@@ -153,6 +162,75 @@ export const BOOK_STYLE_PRESETS: Record<BookVisualPreset, BookStylePresetDefinit
       coverLayout: 'typographic',
       coverTitlePosition: 'center',
       coverOverlay: 0,
+    },
+  },
+  bullet: {
+    label: 'Bullet journal',
+    collection: 'journaling',
+    description: 'Papier pointillé, encre nette et dates compactes.',
+    accent: '#386552',
+    artDirection: {
+      preset: 'bullet',
+      fontPair: 'modern',
+      paperColor: '#ffffff',
+      inkColor: '#252b29',
+      density: 'compact',
+      lineHeight: 1.4,
+      pageNumbers: 'outer',
+      dateStyle: 'compact',
+      dateHeadingStyle: 'label',
+      photoFrame: 'square',
+      chapterStyle: 'minimal',
+      participantPalette: 'neutral',
+      coverLayout: 'typographic',
+      coverTitlePosition: 'center',
+      coverOverlay: 0,
+    },
+  },
+  travel: {
+    label: 'Carnet de voyage',
+    collection: 'journaling',
+    description: 'Papier naturel, photos encadrées et récit littéraire.',
+    accent: '#38664b',
+    artDirection: {
+      preset: 'travel',
+      fontPair: 'literary',
+      paperColor: '#fffdf6',
+      inkColor: '#29382f',
+      density: 'balanced',
+      lineHeight: 1.5,
+      pageNumbers: 'outer',
+      dateStyle: 'full',
+      dateHeadingStyle: 'classic',
+      photoFrame: 'bordered',
+      chapterStyle: 'classic',
+      participantPalette: 'accent',
+      coverLayout: 'split',
+      coverTitlePosition: 'bottom-left',
+      coverOverlay: 28,
+    },
+  },
+  scrapbook: {
+    label: 'Scrapbook',
+    collection: 'journaling',
+    description: 'Photos instantanées, accents framboise et pages aérées.',
+    accent: '#a43f64',
+    artDirection: {
+      preset: 'scrapbook',
+      fontPair: 'editorial',
+      paperColor: '#fff9fb',
+      inkColor: '#322b32',
+      density: 'airy',
+      lineHeight: 1.5,
+      pageNumbers: 'center',
+      dateStyle: 'compact',
+      dateHeadingStyle: 'label',
+      photoFrame: 'bordered',
+      chapterStyle: 'band',
+      participantPalette: 'accent',
+      coverLayout: 'full-image',
+      coverTitlePosition: 'bottom-left',
+      coverOverlay: 56,
     },
   },
 }
@@ -210,12 +288,59 @@ const PHOTO_RADIUS: Record<PhotoFrameStyle, string> = {
   bordered: '1px',
 }
 
+export const SCRAPBOOK_PHOTO_MAT = {
+  sideMm: 2,
+  bottomMm: 6,
+  color: '#ffffff',
+}
+
+export function getCompositionColors(artDirection: BookArtDirection, accent: string) {
+  return {
+    notePaper: mixHex(artDirection.paperColor, accent, 0.08),
+    tape: mixHex('#fff8df', accent, 0.3),
+  }
+}
+
+export function getJournalPageDecoration(
+  artDirection: BookArtDirection,
+  dimensions = { widthMm: 148, heightMm: 210 },
+): { path: string; color: string; strokeWidth: number } | null {
+  if (artDirection.preset === 'bullet') {
+    const marks: string[] = []
+    for (let vertical = 7.5; vertical < dimensions.heightMm - 5; vertical += 5) {
+      for (let horizontal = 7.5; horizontal < dimensions.widthMm - 5; horizontal += 5) {
+        marks.push(`M${horizontal} ${vertical}h0.01`)
+      }
+    }
+    return {
+      path: marks.join(' '),
+      color: mixHex(artDirection.inkColor, artDirection.paperColor, 0.82),
+      strokeWidth: 0.32,
+    }
+  }
+  if (artDirection.preset === 'travel') {
+    const bottom = dimensions.heightMm - 10
+    return {
+      path: `M7 10V${bottom} M8.5 10V${bottom}`,
+      color: mixHex(artDirection.inkColor, artDirection.paperColor, 0.72),
+      strokeWidth: 0.2,
+    }
+  }
+  return null
+}
+
 export function getBookStyleVariables(
   artDirection: BookArtDirection,
   accent = '#000000',
+  dimensions = { widthMm: 148, heightMm: 210 },
 ): Record<string, string | number> {
   const fonts = FONT_PAIR_META[artDirection.fontPair]
   const geometry = DENSITY_PAGE_GEOMETRY[artDirection.density]
+  const compositionColors = getCompositionColors(artDirection, accent)
+  const decoration = getJournalPageDecoration(artDirection, dimensions)
+  const decorationSvg = decoration
+    ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${dimensions.widthMm} ${dimensions.heightMm}"><path d="${decoration.path}" fill="none" stroke="${decoration.color}" stroke-width="${decoration.strokeWidth}" stroke-linecap="round"/></svg>`
+    : null
   return {
     '--book-paper': artDirection.paperColor,
     '--book-ink': artDirection.inkColor,
@@ -230,6 +355,14 @@ export function getBookStyleVariables(
     '--book-page-padding-top': geometry.paddingTop,
     '--book-page-padding-bottom': geometry.paddingBottom,
     '--book-photo-radius': PHOTO_RADIUS[artDirection.photoFrame],
+    '--book-page-decoration': decorationSvg
+      ? `url("data:image/svg+xml,${encodeURIComponent(decorationSvg)}")`
+      : 'none',
+    '--book-photo-mat-side': `${SCRAPBOOK_PHOTO_MAT.sideMm}mm`,
+    '--book-photo-mat-bottom': `${SCRAPBOOK_PHOTO_MAT.bottomMm}mm`,
+    '--book-photo-mat-color': SCRAPBOOK_PHOTO_MAT.color,
+    '--book-note-paper': compositionColors.notePaper,
+    '--book-tape-color': compositionColors.tape,
     '--book-readable-accent': ensureReadableColor(accent, artDirection.paperColor),
     '--book-accent-contrast': bestContrastText(accent),
     '--book-cover-overlay': `${Math.min(

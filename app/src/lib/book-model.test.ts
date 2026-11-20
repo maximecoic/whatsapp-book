@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage, ParsedChat } from './chat-types'
+import { layoutCompositionPage } from './book-composition'
 import {
   applyCaptionOverrides,
   createInitialSettings,
@@ -47,6 +48,53 @@ const chat: ParsedChat = {
 }
 
 describe('book model', () => {
+  it.each((['gazette', 'photo-story', 'collage'] as const).flatMap((theme) => (
+    (['a5', 'a4', 'letter', 'square'] as const).flatMap((format) => (
+      (['portrait', 'landscape'] as const).flatMap((orientation) => (
+        [0.85, 1.2].map((fontScale) => ({ theme, format, orientation, fontScale }))
+      ))
+    ))
+  )))(
+    'paginates $theme on $format/$orientation at $fontScale without losing or overflowing content',
+    ({ theme, format, orientation, fontScale }) => {
+      const settings = { ...createInitialSettings(chat, 'chat.zip'), theme, format, orientation, fontScale }
+      settings.photoOverrides = [{
+        ...getPhotoOverride(settings, 'composition-0'),
+        layout: 'wide',
+      }]
+      const content = Array.from({ length: 30 }, (_, index) => ({
+        ...message(`composition-${index}`, 1, index % 2 ? 'Lina' : 'Sam', index % 3 === 0 ? 'media' : 'message'),
+        body: 'Les souvenirs du voyage restent avec nous. '.repeat(index % 5 + 1),
+      }))
+      settings.photoAspectRatios = Object.fromEntries(content.flatMap((entry, index) => (
+        entry.mediaName ? [[entry.mediaName, index % 2 ? 2 / 3 : 3 / 2]] : []
+      )))
+      const pages = paginateMessages(content, settings)
+      expect(pages.length).toBeGreaterThan(1)
+      expect([...new Set(pages.flat().map(({ sourceMessageId }) => sourceMessageId))])
+        .toEqual(content.map(({ id }) => id))
+      content.forEach((source) => {
+        const restoredBody = pages.flat()
+          .filter((entry) => entry.sourceMessageId === source.id)
+          .map(({ body }) => body)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+        expect(restoredBody).toBe(source.body.replace(/\s+/g, ' ').trim())
+      })
+      pages.forEach((page) => {
+        expect(layoutCompositionPage(page, {
+          theme,
+          ...getPageDimensions(settings.format, settings.orientation),
+          fontScale: settings.fontScale,
+          lineHeight: settings.artDirection.lineHeight,
+          photoOverrides: settings.photoOverrides,
+          photoAspectRatios: settings.photoAspectRatios,
+        }).fits).toBe(true)
+      })
+    },
+  )
+
   it('creates settings from the archive metadata', () => {
     const settings = createInitialSettings(chat, 'WhatsApp Chat - Lina & Sam.zip')
 
