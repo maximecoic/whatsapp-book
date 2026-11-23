@@ -2,7 +2,6 @@ import {
   Document,
   Font,
   Image as PdfImage,
-  ImageBackground as PdfImageBackground,
   Link,
   Page,
   Path,
@@ -12,10 +11,6 @@ import {
   View,
 } from '@react-pdf/renderer'
 import { Buffer } from 'buffer'
-import robotoBoldUrl from 'roboto-fontface/fonts/roboto/Roboto-Bold.woff?url'
-import robotoRegularUrl from 'roboto-fontface/fonts/roboto/Roboto-Regular.woff?url'
-import robotoSlabBoldUrl from 'roboto-fontface/fonts/roboto-slab/Roboto-Slab-Bold.woff?url'
-import robotoSlabRegularUrl from 'roboto-fontface/fonts/roboto-slab/Roboto-Slab-Regular.woff?url'
 import {
   findBackCoverMedia,
   findCoverMedia,
@@ -23,6 +18,7 @@ import {
   getBackCoverPhotoOverride,
   getCoverPhotoOverride,
   getPageDimensions,
+  getEditorialTextGeometry,
   getParticipantProfile,
   getPhotoOverride,
   type BookNavigationEntry,
@@ -37,26 +33,15 @@ import {
 } from './book-style'
 import type { ChatMessage } from './chat-types'
 import { getCompositionMetrics, isDesignedComposition, layoutCompositionPage } from './book-composition'
+import { getPdfFontFamilies, pdfFontFamily } from './pdf-fonts'
+import { getPdfCoverImageBox } from './pdf-image-layout'
+import { DEFAULT_VIDEO_TIME, isVideoMedia, showMediaCaption, videoFrameKey } from './video-frame'
 
 const globalWithBuffer = globalThis as typeof globalThis & {
   Buffer?: typeof Buffer
 }
 if (!globalWithBuffer.Buffer) globalWithBuffer.Buffer = Buffer
 
-Font.register({
-  family: 'Chatbound Sans',
-  fonts: [
-    { src: robotoRegularUrl, fontWeight: 400 },
-    { src: robotoBoldUrl, fontWeight: 700 },
-  ],
-})
-Font.register({
-  family: 'Chatbound Serif',
-  fonts: [
-    { src: robotoSlabRegularUrl, fontWeight: 400 },
-    { src: robotoSlabBoldUrl, fontWeight: 700 },
-  ],
-})
 Font.registerHyphenationCallback((word) => [word])
 
 const POINTS_PER_MM = 72 / 25.4
@@ -90,11 +75,12 @@ const timeFormatter = new Intl.DateTimeFormat('fr-FR', {
 const styles = StyleSheet.create({
   page: {
     position: 'relative',
-    fontFamily: 'Chatbound Sans',
+    fontFamily: pdfFontFamily('Chatbound Sans'),
   },
   coverPage: {
     position: 'relative',
     overflow: 'hidden',
+    fontFamily: pdfFontFamily('Chatbound Sans'),
   },
   coverImage: {
     width: '100%',
@@ -102,6 +88,7 @@ const styles = StyleSheet.create({
     objectFit: 'contain',
   },
   coverImagePane: {
+    position: 'relative',
     overflow: 'hidden',
   },
   coverCopy: {
@@ -117,7 +104,7 @@ const styles = StyleSheet.create({
   },
   coverTitle: {
     marginTop: 12,
-    fontFamily: 'Chatbound Serif',
+    fontFamily: pdfFontFamily('Chatbound Serif'),
     fontWeight: 700,
     fontSize: 31,
     lineHeight: 0.98,
@@ -145,7 +132,7 @@ const styles = StyleSheet.create({
   },
   backCoverText: {
     maxWidth: '82%',
-    fontFamily: 'Chatbound Serif',
+    fontFamily: pdfFontFamily('Chatbound Serif'),
     fontSize: 13,
     lineHeight: 1.45,
   },
@@ -166,7 +153,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   chapterTitle: {
-    fontFamily: 'Chatbound Serif',
+    fontFamily: pdfFontFamily('Chatbound Serif'),
     fontSize: 20,
     fontWeight: 700,
     lineHeight: 1.05,
@@ -178,7 +165,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     paddingBottom: 4,
     borderBottomWidth: 0.6,
-    fontFamily: 'Chatbound Serif',
+    fontFamily: pdfFontFamily('Chatbound Serif'),
     fontSize: 10,
     fontWeight: 700,
   },
@@ -247,14 +234,14 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   editorialTitle: {
-    fontFamily: 'Chatbound Serif',
+    fontFamily: pdfFontFamily('Chatbound Serif'),
     fontSize: 25,
     fontWeight: 700,
     lineHeight: 1.05,
   },
   editorialBody: {
     marginTop: 20,
-    fontFamily: 'Chatbound Serif',
+    fontFamily: pdfFontFamily('Chatbound Serif'),
     fontSize: 11,
     lineHeight: 1.55,
   },
@@ -346,10 +333,12 @@ function CoverImage({
   source,
   settings,
   mediaName,
+  box,
 }: {
   source: string | null
   settings: BookSettings
   mediaName: string | null
+  box: { width: number; height: number }
 }) {
   if (!source || !mediaName) {
     return (
@@ -368,7 +357,7 @@ function CoverImage({
           objectFit: override.fit,
           objectPositionX: `${override.focalX}%`,
           objectPositionY: `${override.focalY}%`,
-          transform: `rotate(${override.rotation}deg)`,
+          ...getPdfCoverImageBox(box.width, box.height, override.rotation),
         },
       ]}
     />
@@ -384,17 +373,18 @@ function CoverCopy({
   messages: ChatMessage[]
   color: string
 }) {
+  const { heading, body } = getPdfFontFamilies(settings.artDirection.fontPair)
   const dateRange = messages.length
     ? `${shortDate.format(messages[0].timestamp)} — ${shortDate.format(messages.at(-1)!.timestamp)}`
     : 'Sélection vide'
   return (
     <>
-      <Text style={[styles.coverKicker, { color }]}>Une histoire en messages</Text>
-      <Text style={[styles.coverTitle, { color }]}>{settings.title || 'Sans titre'}</Text>
+      <Text style={[styles.coverKicker, { color, fontFamily: body }]}>Une histoire en messages</Text>
+      <Text style={[styles.coverTitle, { color, fontFamily: heading }]}>{settings.title || 'Sans titre'}</Text>
       {settings.subtitle ? (
-        <Text style={[styles.coverSubtitle, { color }]}>{settings.subtitle}</Text>
+        <Text style={[styles.coverSubtitle, { color, fontFamily: body }]}>{settings.subtitle}</Text>
       ) : null}
-      <Text style={[styles.coverDate, { color }]}>{dateRange}</Text>
+      <Text style={[styles.coverDate, { color, fontFamily: body }]}>{dateRange}</Text>
     </>
   )
 }
@@ -442,29 +432,14 @@ function CoverPage({
           },
         ]}
       >
-        {source && coverMedia ? (
-          <PdfImageBackground
-            src={source}
-            style={styles.fullCoverBackground}
-            imageStyle={{
-              objectFit: getCoverPhotoOverride(settings, coverMedia).fit,
-              objectPositionX: `${getCoverPhotoOverride(settings, coverMedia).focalX}%`,
-              objectPositionY: `${getCoverPhotoOverride(settings, coverMedia).focalY}%`,
-              transform: `rotate(${getCoverPhotoOverride(settings, coverMedia).rotation}deg)`,
-            }}
-          >
-            {coverCopy}
-          </PdfImageBackground>
-        ) : (
-          <View
-            style={[
-              styles.fullCoverBackground,
-              { backgroundColor: settings.artDirection.paperColor },
-            ]}
-          >
+        <View style={[styles.fullCoverBackground, { backgroundColor: settings.artDirection.paperColor, overflow: 'hidden' }]}>
+          {source && coverMedia ? (
+            <CoverImage source={source} settings={settings} mediaName={coverMedia} box={size} />
+          ) : null}
+          <View style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
             {coverCopy}
           </View>
-        )}
+        </View>
       </Page>
     )
   }
@@ -530,7 +505,12 @@ function CoverPage({
       ]}
     >
       <View style={[styles.coverImagePane, { flex: landscape ? 0.57 : 0.58 }]}>
-        <CoverImage source={source} settings={settings} mediaName={coverMedia} />
+        <CoverImage
+          source={source}
+          settings={settings}
+          mediaName={coverMedia}
+          box={{ width: landscape ? size.width * 0.57 : size.width, height: landscape ? size.height : size.height * 0.58 }}
+        />
       </View>
       <View
         style={[
@@ -558,12 +538,13 @@ function EditorialContent({
   settings: BookSettings
 }) {
   const editorial = message.editorial!
+  const fonts = getPdfFontFamilies(settings.artDirection.fontPair)
   if (editorial.kind === 'blank') return null
   if (editorial.kind === 'table-of-contents') {
     return (
       <View style={styles.toc}>
-        <Text style={[styles.editorialKicker, { color: settings.accent }]}>Dans ce livre</Text>
-        <Text style={[styles.editorialTitle, { color: settings.artDirection.inkColor }]}>
+        <Text style={[styles.editorialKicker, { color: settings.accent, fontFamily: fonts.body }]}>Dans ce livre</Text>
+        <Text style={[styles.editorialTitle, { color: settings.artDirection.inkColor, fontFamily: fonts.heading }]}>
           {editorial.title}
         </Text>
         <View style={{ marginTop: 18 }}>
@@ -579,23 +560,41 @@ function EditorialContent({
                 },
               ]}
             >
-              <Text style={styles.tocLabel}>{entry.label}</Text>
-              <Text style={[styles.tocPage, { color: settings.accent }]}>{entry.page}</Text>
+              <Text style={[styles.tocLabel, { fontFamily: fonts.body }]}>{entry.label}</Text>
+              <Text style={[styles.tocPage, { color: settings.accent, fontFamily: fonts.body }]}>{entry.page}</Text>
             </Link>
           ))}
         </View>
       </View>
     )
   }
+  const geometry = getEditorialTextGeometry(message, settings)
   return (
-    <View style={styles.editorial}>
-      <Text style={[styles.editorialKicker, { color: settings.accent }]}>
+    <View style={{
+      position: 'absolute',
+      top: geometry.topMm * POINTS_PER_MM,
+      left: geometry.leftMm * POINTS_PER_MM,
+      width: geometry.widthMm * POINTS_PER_MM,
+      textAlign: geometry.layout.align,
+    }}>
+      <Text style={[styles.editorialKicker, { color: settings.accent, fontFamily: fonts.body }]}>
         {editorialKicker(editorial.kind)}
       </Text>
-      <Text style={[styles.editorialTitle, { color: settings.artDirection.inkColor }]}>
+      {editorial.title ? <Text style={[styles.editorialTitle, {
+        fontFamily: fonts.heading,
+        color: settings.artDirection.inkColor,
+        fontSize: geometry.titlePt,
+        lineHeight: 1.1,
+      }]}>
         {editorial.title}
-      </Text>
-      <Text style={[styles.editorialBody, { color: settings.artDirection.inkColor }]}>
+      </Text> : null}
+      <Text style={[styles.editorialBody, {
+        color: settings.artDirection.inkColor,
+        fontSize: geometry.fontPt,
+        lineHeight: settings.artDirection.lineHeight,
+        marginTop: editorial.title ? 6 * POINTS_PER_MM : 0,
+        fontFamily: fonts.body,
+      }]}>
         {message.body}
       </Text>
       {message.continuation ? (
@@ -617,6 +616,7 @@ function BackCoverPage({
   size: { width: number; height: number }
   pageIndex: number
 }) {
+  const { body } = getPdfFontFamilies(settings.artDirection.fontPair)
   const mediaName = findBackCoverMedia(messages, settings.backCover.mediaName)
   const source = mediaName ? mediaUrls[mediaName] ?? null : null
   const isPhoto = settings.backCover.layout === 'photo' && Boolean(source && mediaName)
@@ -638,6 +638,7 @@ function BackCoverPage({
           style={[
             styles.backCoverText,
             {
+              fontFamily: body,
               color: isPhoto ? '#ffffff' : settings.artDirection.inkColor,
             },
           ]}
@@ -667,22 +668,25 @@ function BackCoverPage({
         },
       ]}
     >
-      {isPhoto && source && mediaName ? (
-        <PdfImageBackground
-          src={source}
-          style={styles.fullCoverBackground}
-          imageStyle={{
-            objectFit: getBackCoverPhotoOverride(settings, mediaName).fit,
-            objectPositionX: `${getBackCoverPhotoOverride(settings, mediaName).focalX}%`,
-            objectPositionY: `${getBackCoverPhotoOverride(settings, mediaName).focalY}%`,
-            transform: `rotate(${getBackCoverPhotoOverride(settings, mediaName).rotation}deg)`,
-          }}
-        >
+      <View style={[styles.fullCoverBackground, { overflow: 'hidden' }]}>
+        {isPhoto && source && mediaName ? (
+          <PdfImage
+            src={source}
+            style={[
+              styles.coverImage,
+              {
+                objectFit: getBackCoverPhotoOverride(settings, mediaName).fit,
+                objectPositionX: `${getBackCoverPhotoOverride(settings, mediaName).focalX}%`,
+                objectPositionY: `${getBackCoverPhotoOverride(settings, mediaName).focalY}%`,
+                ...getPdfCoverImageBox(size.width, size.height, getBackCoverPhotoOverride(settings, mediaName).rotation),
+              },
+            ]}
+          />
+        ) : null}
+        <View style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
           {copy}
-        </PdfImageBackground>
-      ) : (
-        <View style={styles.fullCoverBackground}>{copy}</View>
-      )}
+        </View>
+      </View>
     </Page>
   )
 }
@@ -704,11 +708,18 @@ function MessageContent({
   const override = getPhotoOverride(settings, sourceMessageId)
   const profile = getParticipantProfile(settings, message.sender)
   const color = participantColor(settings, message.sender)
-  const source = message.mediaName ? mediaUrls[message.mediaName] : null
+  const isVideo = isVideoMedia(message.mediaName)
+  const source = message.mediaName
+    ? mediaUrls[isVideo ? videoFrameKey(message.mediaName, override.videoTime ?? DEFAULT_VIDEO_TIME) : message.mediaName]
+    : null
+  const selectedFonts = getPdfFontFamilies(settings.artDirection.fontPair)
+  const fonts = settings.theme === 'gazette'
+    ? { ...selectedFonts, body: pdfFontFamily('Chatbound Serif') }
+    : selectedFonts
   const compositionFontPt = isDesignedComposition(settings.theme)
     ? getCompositionMetrics({
         theme: settings.theme,
-        ...getPageDimensions(settings.format, settings.orientation),
+        ...getPageDimensions(settings.format, settings.orientation, settings.customSize),
         fontScale: settings.fontScale,
         lineHeight: settings.artDirection.lineHeight,
         photoOverrides: settings.photoOverrides,
@@ -729,14 +740,14 @@ function MessageContent({
     <View style={[styles.message, conversationStyle]} wrap={false}>
       <View style={[styles.messageMeta, settings.theme === 'collage' ? { flexWrap: 'wrap' } : {}]}>
         {settings.theme === 'collage' ? (
-          <Text style={{ fontSize: 6, color: ensureReadableColor(settings.accent, settings.artDirection.paperColor) }}>
+          <Text style={{ fontSize: 6, fontFamily: fonts.body, color: ensureReadableColor(settings.accent, settings.artDirection.paperColor) }}>
             {formatBookDate(message.timestamp, settings.artDirection.dateStyle)}
           </Text>
         ) : null}
-        <Text style={[styles.sender, { color }]}>
+        <Text style={[styles.sender, { color, fontFamily: fonts.body }]}>
           {profile?.displayName.trim() || message.sender || 'WhatsApp'}
         </Text>
-        <Text style={[styles.messageTime, { color: settings.artDirection.inkColor }]}>
+        <Text style={[styles.messageTime, { color: settings.artDirection.inkColor, fontFamily: fonts.body }]}>
           {timeFormatter.format(message.timestamp)}
         </Text>
         {message.continuation ? (
@@ -777,13 +788,17 @@ function MessageContent({
               />
             ) : (
               <View style={[styles.photo, styles.missingPhoto]}>
-                <Text style={styles.missingPhotoText}>Image indisponible</Text>
+                <Text style={styles.missingPhotoText}>{isVideo ? 'Vidéo indisponible' : 'Image indisponible'}</Text>
               </View>
             )}
+            {isVideo ? (
+              <Text style={{ position: 'absolute', right: 4, bottom: 4, backgroundColor: '#222222', color: '#ffffff', padding: 3, fontSize: 6, fontFamily: fonts.body }}>VIDÉO</Text>
+            ) : null}
           </View>
-          {message.body && override.showCaption ? (
+          {message.body && showMediaCaption(message.mediaName, override.showCaption) ? (
             <Text style={[styles.caption, {
               color: settings.artDirection.inkColor,
+              fontFamily: fonts.body,
               ...(compositionFontPt ? {
                 fontSize: compositionFontPt,
                 lineHeight: settings.artDirection.lineHeight,
@@ -795,11 +810,14 @@ function MessageContent({
           ) : null}
         </>
       ) : (
+        <>
+        {message.videoName ? <Text style={[styles.messageTime, { fontFamily: fonts.body }]}>VIDÉO</Text> : null}
         <Text
           style={[
             styles.messageBody,
             {
               color: settings.artDirection.inkColor,
+              fontFamily: fonts.body,
               lineHeight: settings.artDirection.lineHeight,
               ...(compositionFontPt ? { fontSize: compositionFontPt } : {}),
             },
@@ -807,6 +825,7 @@ function MessageContent({
         >
           {message.body}
         </Text>
+        </>
       )}
     </View>
   )
@@ -824,7 +843,7 @@ function DesignedConversationContent({
   if (!isDesignedComposition(settings.theme)) return null
   const layout = layoutCompositionPage(page, {
     theme: settings.theme,
-    ...getPageDimensions(settings.format, settings.orientation),
+    ...getPageDimensions(settings.format, settings.orientation, settings.customSize),
     fontScale: settings.fontScale,
     lineHeight: settings.artDirection.lineHeight,
     photoOverrides: settings.photoOverrides,
@@ -835,14 +854,9 @@ function DesignedConversationContent({
   const isStory = settings.theme === 'photo-story'
   const compositionColors = getCompositionColors(settings.artDirection, settings.accent)
   const accent = ensureReadableColor(settings.accent, settings.artDirection.paperColor)
-  const headingFont = settings.artDirection.fontPair === 'modern' ||
-    settings.artDirection.fontPair === 'correspondence'
-    ? 'Chatbound Sans'
-    : 'Chatbound Serif'
-  const bodyFont = isGazette || settings.artDirection.fontPair === 'literary' ||
-    settings.artDirection.fontPair === 'correspondence'
-    ? 'Chatbound Serif'
-    : 'Chatbound Sans'
+  const fonts = getPdfFontFamilies(settings.artDirection.fontPair)
+  const headingFont = isGazette ? pdfFontFamily('Chatbound Serif') : fonts.heading
+  const bodyFont = isGazette ? pdfFontFamily('Chatbound Serif') : fonts.body
   return (
     <View style={{
       position: 'absolute',
@@ -865,7 +879,7 @@ function DesignedConversationContent({
           {page[0]?.chapterTitle ? 'Chapitre' : settings.subtitle}
         </Text>
         <Text style={{
-          fontFamily: isGazette ? 'Chatbound Serif' : headingFont,
+          fontFamily: headingFont,
           fontSize: isGazette ? 20 : isCollage ? 14 : 17,
           fontWeight: isGazette ? 700 : 500,
           lineHeight: 1.05,
@@ -957,6 +971,7 @@ function ConversationContent({
   mediaUrls: MediaUrls
   contentHeight: number
 }) {
+  const fonts = getPdfFontFamilies(settings.artDirection.fontPair)
   const senders = Array.from(new Set(page.flatMap((message) => (
     message.sender ? [message.sender] : []
   ))))
@@ -995,7 +1010,7 @@ function ConversationContent({
           <Text
             style={[
               styles.chapterKicker,
-              { color: settings.artDirection.chapterStyle === 'band' ? '#ffffff' : settings.accent },
+              { color: settings.artDirection.chapterStyle === 'band' ? '#ffffff' : settings.accent, fontFamily: fonts.body },
             ]}
           >
             Chapitre
@@ -1003,7 +1018,7 @@ function ConversationContent({
           <Text
             style={[
               styles.chapterTitle,
-              { color: settings.artDirection.chapterStyle === 'band' ? '#ffffff' : settings.artDirection.inkColor },
+              { color: settings.artDirection.chapterStyle === 'band' ? '#ffffff' : settings.artDirection.inkColor, fontFamily: fonts.heading },
             ]}
           >
             {page[0].chapterTitle}
@@ -1020,6 +1035,7 @@ function ConversationContent({
                   ? '#ffffff'
                   : settings.artDirection.inkColor,
                 borderBottomColor: settings.accent,
+                fontFamily: fonts.heading,
                 backgroundColor: settings.artDirection.dateHeadingStyle === 'label'
                   ? settings.accent
                   : 'transparent',
@@ -1079,7 +1095,8 @@ export function DirectPdfDocument({
   pages,
   mediaUrls,
 }: DirectPdfDocumentProps) {
-  const dimensions = getPageDimensions(settings.format, settings.orientation)
+  const dimensions = getPageDimensions(settings.format, settings.orientation, settings.customSize)
+  const pdfFonts = getPdfFontFamilies(settings.artDirection.fontPair)
   const size = {
     width: dimensions.widthMm * POINTS_PER_MM,
     height: dimensions.heightMm * POINTS_PER_MM,
@@ -1137,6 +1154,7 @@ export function DirectPdfDocument({
                 color: settings.artDirection.inkColor,
                 backgroundColor: settings.artDirection.paperColor,
                 fontSize: 9 * settings.fontScale,
+                fontFamily: pdfFonts.body,
               },
             ]}
             key={page[0]?.id ?? `page-${number}`}

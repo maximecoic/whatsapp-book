@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ImageOff,
+  Film,
   ListTree,
   MessageCircleMore,
   SlidersHorizontal,
@@ -23,6 +24,7 @@ import {
   getBookmarkPageIndex,
   getMediaLayoutWeight,
   getPageDimensions,
+  getEditorialTextGeometry,
   getPhotoOverride,
   getParticipantProfile,
   type BookSettings,
@@ -36,6 +38,7 @@ import {
 } from '../lib/book-style'
 import { MediaImage } from './MediaImage'
 import { isDesignedComposition, layoutCompositionPage } from '../lib/book-composition'
+import { isVideoMedia, showMediaCaption } from '../lib/video-frame'
 
 const CSS_PIXELS_PER_MM = 96 / 25.4
 const SPREAD_GAP_PX = 12
@@ -126,7 +129,8 @@ function MessageEntry({
   onSelectStructure?(messageId: string): void
   showDate?: boolean
 }) {
-  const mediaAlt = `Photo partagée par ${message.sender ?? 'un participant'}`
+  const isVideo = isVideoMedia(message.mediaName)
+  const mediaAlt = `${isVideo ? 'Image de vidéo' : 'Photo'} partagée par ${message.sender ?? 'un participant'}`
   const sourceMessageId = message.sourceMessageId ?? message.id
   const photoOverride = getPhotoOverride(settings, sourceMessageId)
   const participantProfile = getParticipantProfile(settings, message.sender)
@@ -197,7 +201,7 @@ function MessageEntry({
             data-photo-rotation={photoOverride.rotation}
             role={onSelectPhoto ? 'button' : undefined}
             tabIndex={onSelectPhoto ? 0 : undefined}
-            aria-label={onSelectPhoto ? `Régler la photo de ${message.sender ?? 'WhatsApp'}` : undefined}
+            aria-label={onSelectPhoto ? `Régler ${isVideo ? 'la vidéo' : 'la photo'} de ${message.sender ?? 'WhatsApp'}` : undefined}
             onClick={onSelectPhoto ? () => onSelectPhoto(sourceMessageId) : undefined}
             onKeyDown={onSelectPhoto ? (event) => {
               if (event.key !== 'Enter' && event.key !== ' ') return
@@ -208,22 +212,27 @@ function MessageEntry({
             <MediaImage
               archive={archive}
               name={message.mediaName}
+              videoTime={photoOverride.videoTime}
               alt={mediaAlt}
               className={`photo-image is-rotation-${photoOverride.rotation}`}
               style={photoStyle}
             />
+            {isVideo ? <span className="video-frame-badge"><Film size={11} /> Vidéo</span> : null}
             {onSelectPhoto ? (
               <span className="photo-edit-affordance" aria-hidden="true">
                 <SlidersHorizontal size={14} />
               </span>
             ) : null}
           </div>
-          {message.body && photoOverride.showCaption ? (
+          {message.body && showMediaCaption(message.mediaName, photoOverride.showCaption) ? (
             <figcaption>{message.body}</figcaption>
           ) : null}
         </figure>
       ) : (
         <div className="message-copy">
+          {message.videoName ? (
+            onSelectPhoto ? <button type="button" className="video-text-control" onClick={() => onSelectPhoto(sourceMessageId)}><Film size={13} /> Vidéo</button> : <span className="video-text-label"><Film size={13} /> Vidéo</span>
+          ) : null}
           {message.kind === 'missing-media' ? <ImageOff size={13} aria-hidden="true" /> : null}
           {message.kind === 'deleted' ? <Trash2 size={13} aria-hidden="true" /> : null}
           {message.kind === 'system' ? <MessageCircleMore size={13} aria-hidden="true" /> : null}
@@ -258,8 +267,16 @@ export function BookContentPage({
     if (editorial.kind === 'blank') {
       return <div className="book-editorial-page is-blank" aria-label="Page blanche" />
     }
+    const geometry = editorial.kind === 'table-of-contents' ? null : getEditorialTextGeometry(messages[0], settings)
     return (
-      <div className={`book-editorial-page is-${editorial.kind}`}>
+      <div className={`book-editorial-page is-${editorial.kind}`} style={geometry ? { padding: 0 } : undefined}>
+        <div className="editorial-custom-block" style={geometry ? {
+          position: 'absolute',
+          top: `${geometry.topMm}mm`,
+          left: `${geometry.leftMm}mm`,
+          width: `${geometry.widthMm}mm`,
+          textAlign: geometry.layout.align,
+        } : { display: 'contents' }}>
         {editorial.kind === 'table-of-contents' ? (
           <>
             <span className="book-editorial-kicker">Dans ce livre</span>
@@ -295,8 +312,12 @@ export function BookContentPage({
                     ? 'Épilogue'
                     : 'Interlude'}
             </span>
-            <h2>{editorial.title}</h2>
-            <div className="book-editorial-copy">
+            {editorial.title ? <h2 style={{ fontSize: `${geometry!.titlePt}pt`, margin: '2mm 0 0', lineHeight: 1.1 }}>{editorial.title}</h2> : null}
+            <div className="book-editorial-copy" style={{
+              fontSize: `${geometry!.fontPt}pt`,
+              lineHeight: settings.artDirection.lineHeight,
+              marginTop: editorial.title ? '6mm' : 0,
+            }}>
               <p>{messages[0].body}</p>
             </div>
             {messages[0].continuation ? (
@@ -306,6 +327,7 @@ export function BookContentPage({
             ) : null}
           </>
         )}
+        </div>
       </div>
     )
   }
@@ -314,7 +336,7 @@ export function BookContentPage({
   if (isDesignedComposition(settings.theme)) {
     const layout = layoutCompositionPage(messages, {
       theme: settings.theme,
-      ...getPageDimensions(settings.format, settings.orientation),
+      ...getPageDimensions(settings.format, settings.orientation, settings.customSize),
       fontScale: settings.fontScale,
       lineHeight: settings.artDirection.lineHeight,
       photoOverrides: settings.photoOverrides,
@@ -533,6 +555,7 @@ export function BookCover({
           <MediaImage
             archive={archive}
             name={coverMedia}
+            videoTime={coverMessageId ? getPhotoOverride(settings, coverMessageId).videoTime : undefined}
             alt="Photo de couverture"
             className={`cover-photo-image is-rotation-${coverOverride.rotation}`}
             style={coverStyle}
@@ -608,6 +631,7 @@ export function BookBackCover({
             <MediaImage
               archive={archive}
               name={mediaName}
+              videoTime={messageId ? getPhotoOverride(settings, messageId).videoTime : undefined}
               alt="Photo de quatrième de couverture"
               className={`cover-photo-image is-rotation-${override.rotation}`}
               style={photoStyle}
@@ -780,7 +804,7 @@ export function BookPreview({
   onSelectBackCoverPhoto,
   onSetPageBookmark,
 }: BookPreviewProps) {
-  const dimensions = getPageDimensions(settings.format, settings.orientation)
+  const dimensions = getPageDimensions(settings.format, settings.orientation, settings.customSize)
   const backCoverIndex = settings.backCover.enabled ? pages.length + 1 : null
   const pageCount = pages.length + 1 + (settings.backCover.enabled ? 1 : 0)
   const navigationEntries = getBookNavigationEntries(pages, settings)
@@ -848,6 +872,7 @@ export function BookPreview({
     if (!stage) return
 
     const updateScale = () => {
+      if (stage.clientWidth <= 0 || stage.clientHeight <= 0) return
       const supportsSpread = stage.clientWidth >= 720
       setStageSupportsSpread(supportsSpread)
       const pageSlots = spreadView && supportsSpread && pageCount > 2 && pageIndex > 0
@@ -860,9 +885,8 @@ export function BookPreview({
       const nextScale = Math.min(
         availableWidth / (pageWidthPx * pageSlots),
         stage.clientHeight / pageHeightPx,
-        1,
       )
-      setPreviewScale(Math.max(0.1, nextScale))
+      setPreviewScale(nextScale)
     }
 
     updateScale()

@@ -1,6 +1,8 @@
 import {
   isDefaultCoverPhotoOverride,
   isDefaultPhotoOverride,
+  normalizeCustomSize,
+  normalizeEditorialLayout,
   type BookSettings,
   type BackCoverSettings,
   type BookBookmark,
@@ -34,6 +36,8 @@ import {
   COVER_OVERLAY_MIN,
 } from './book-style'
 import type { ParsedChat } from './chat-types'
+import { isValidManualVideoFileName, manualVideoMediaName, type ManualVideoAssociation } from './manual-video'
+import { isVideoMedia } from './video-frame'
 
 const DATABASE_NAME = 'chatbound-projects'
 const STORE_NAME = 'projects'
@@ -95,12 +99,31 @@ export function normalizeSavedSettings(
   if (!saved) return defaults
 
   const messageIds = new Set(chat.messages.map((message) => message.id))
+  const messagesById = new Map(chat.messages.map((message) => [message.id, message]))
+  const seenVideoAssociations = new Set<string>()
+  const videoAssociations = Array.isArray(saved.videoAssociations)
+    ? saved.videoAssociations.flatMap((candidate): ManualVideoAssociation[] => {
+      if (!candidate || typeof candidate.messageId !== 'string' || typeof candidate.fileName !== 'string' ||
+        typeof candidate.attachmentId !== 'string' || !/^[a-z0-9-]{8,100}$/i.test(candidate.attachmentId)) return []
+      const message = messagesById.get(candidate.messageId)
+      if (!message || seenVideoAssociations.has(candidate.messageId) ||
+        !['message', 'media', 'missing-media'].includes(message.kind) ||
+        (message.mediaName && !isVideoMedia(message.mediaName)) ||
+        !isValidManualVideoFileName(candidate.fileName)) return []
+      seenVideoAssociations.add(candidate.messageId)
+      return [{ messageId: candidate.messageId, fileName: candidate.fileName, attachmentId: candidate.attachmentId }]
+    })
+    : []
   const mediaNames = new Set(
     chat.messages.flatMap((message) => message.mediaName ? [message.mediaName] : []),
   )
   const mediaMessageIds = new Set(
     chat.messages.flatMap((message) => message.mediaName ? [message.id] : []),
   )
+  videoAssociations.forEach(({ messageId }) => {
+    mediaNames.add(manualVideoMediaName(messageId))
+    mediaMessageIds.add(messageId)
+  })
   const includedParticipants = validParticipants(
     Array.isArray(saved.includedParticipants)
       ? saved.includedParticipants
@@ -129,7 +152,7 @@ export function normalizeSavedSettings(
     })
     : []
 
-  const validFormat = ['a5', 'a4', 'letter', 'square'].includes(
+  const validFormat = ['a5', 'a4', 'letter', 'square', 'custom'].includes(
     String(saved.format),
   )
     ? saved.format as BookSettings['format']
@@ -285,6 +308,10 @@ export function normalizeSavedSettings(
         showCaption: typeof candidate.showCaption === 'boolean'
           ? candidate.showCaption
           : true,
+        ...(typeof candidate.videoTime === 'number' && Number.isFinite(candidate.videoTime) && candidate.videoTime >= 0
+          ? { videoTime: Math.min(candidate.videoTime, 86_400) }
+          : {}),
+        ...(candidate.videoTextOnly === true ? { videoTextOnly: true } : {}),
       }
       photoOverrideMessageIds.add(candidate.messageId)
       return isDefaultPhotoOverride(override) ? [] : [override]
@@ -376,7 +403,7 @@ export function normalizeSavedSettings(
         !candidate ||
         typeof candidate.messageId !== 'string' ||
         typeof candidate.text !== 'string' ||
-        !mediaMessageIds.has(candidate.messageId) ||
+        !messageIds.has(candidate.messageId) ||
         captionMessageIds.has(candidate.messageId)
       ) {
         return []
@@ -443,6 +470,7 @@ export function normalizeSavedSettings(
       return [{
         id: candidate.id,
         kind,
+        ...(candidate.layout && kind !== 'blank' ? { layout: normalizeEditorialLayout(candidate.layout) } : {}),
         title: kind === 'blank' ? '' : title,
         body: kind === 'blank' ? '' : body,
         anchorMessageId,
@@ -486,6 +514,7 @@ export function normalizeSavedSettings(
       ? saved.subtitle.slice(0, 100)
       : defaults.subtitle,
     format: validFormat,
+    customSize: normalizeCustomSize(saved.customSize),
     orientation: validOrientation,
     theme: validTheme,
     accent: typeof saved.accent === 'string' && /^#[0-9a-f]{6}$/i.test(saved.accent)
@@ -528,6 +557,7 @@ export function normalizeSavedSettings(
     pageBreakBeforeIds,
     chapters,
     photoOverrides,
+    videoAssociations,
     captionOverrides,
     participantProfiles,
     editorialPages,

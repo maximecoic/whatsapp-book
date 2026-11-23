@@ -50,6 +50,27 @@ describe('parseWhatsAppChat', () => {
     })
   })
 
+  it('preserves captions before and after Android video attachments', () => {
+    const chat = parseWhatsAppChat([
+      '01/01/2024, 10:00 - Lina: Voici notre souvenir VID-20240101-WA0001.mp4 (file attached)',
+      '01/01/2024, 10:01 - Lina: VID-20240101-WA0002.mp4 (fichier joint)',
+      'Une deuxième légende',
+    ].join('\n'))
+
+    expect(chat.messages[0]).toMatchObject({ body: 'Voici notre souvenir', mediaName: 'VID-20240101-WA0001.mp4', kind: 'media' })
+    expect(chat.messages[1]).toMatchObject({ body: 'Une deuxième légende', mediaName: 'VID-20240101-WA0002.mp4', kind: 'media' })
+  })
+
+  it('keeps a message accompanying an omitted video visible by default', () => {
+    const chat = parseWhatsAppChat([
+      '[01/01/2024 10:00] Lina: <Média omis>',
+      'Un souvenir à conserver',
+      '[01/01/2024 10:01] Lina: vidéo absente',
+    ].join('\n'))
+    expect(chat.messages[0]).toMatchObject({ kind: 'message', body: '<Média omis>\nUn souvenir à conserver' })
+    expect(chat.messages[1].kind).toBe('missing-media')
+  })
+
   it('warns about content before the first valid message', () => {
     const chat = parseWhatsAppChat('Entête inconnue\n[01/01/2024 10:00] Alex: Bonjour')
 

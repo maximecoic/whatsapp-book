@@ -84,6 +84,9 @@ import { StylePanel } from './StylePanel'
 import { PreflightDialog } from './PreflightDialog'
 import { PrintDocument } from './PrintDocument'
 import { getPhotoAspectRatios, inspectPhotoAspectRatio, usePhotoAspectRatios } from './usePhotoAspectRatios'
+import { createManualVideoArchive, isValidManualVideoFileName, manualVideoMediaName } from '../lib/manual-video'
+import { isVideoMedia } from '../lib/video-frame'
+import { hasMissingMediaMarker } from '../lib/chat-parser'
 
 interface StudioProps {
   archive: ChatArchive
@@ -137,12 +140,23 @@ function waitForImageDecode(image: HTMLImageElement): Promise<void> {
   })
 }
 
-export function Studio({ archive, onReset }: StudioProps) {
+export function Studio({ archive: originalArchive, onReset }: StudioProps) {
   const [settingsHistory, dispatchSettings] = useReducer(
     settingsHistoryReducer<BookSettings>,
-    createSettingsHistory(createInitialSettings(archive.chat, archive.fileName)),
+    createSettingsHistory(createInitialSettings(originalArchive.chat, originalArchive.fileName)),
   )
   const settings = settingsHistory.present
+  const [manualVideoFiles, setManualVideoFiles] = useState<ReadonlyMap<string, File>>(() => new Map())
+  const videoFileInput = useRef<HTMLInputElement>(null)
+  const pendingVideoMessageId = useRef<string | null>(null)
+  const [videoAssociationError, setVideoAssociationError] = useState<string | null>(null)
+  const [videoAssociationNotice, setVideoAssociationNotice] = useState<string | null>(null)
+  const archive = useMemo(() => createManualVideoArchive(
+    originalArchive,
+    settings.videoAssociations ?? [],
+    manualVideoFiles,
+  ), [originalArchive, settings.videoAssociations, manualVideoFiles])
+  useEffect(() => () => archive.dispose(), [archive])
   const photoAspectRatios = usePhotoAspectRatios(archive)
   const renderingSettings = useMemo(() => ({ ...settings, photoAspectRatios }), [settings, photoAspectRatios])
   const latestSettings = useRef(settings)
@@ -183,6 +197,11 @@ export function Studio({ archive, onReset }: StudioProps) {
     size: number
   } | null>(null)
   const cancelPrint = useRef(false)
+  const pdfAbortController = useRef<AbortController | null>(null)
+  useEffect(() => () => {
+    cancelPrint.current = true
+    pdfAbortController.current?.abort()
+  }, [])
   const projectMenuRef = useRef<HTMLDivElement>(null)
   const deferredSettings = useDeferredValue(renderingSettings)
   const filteredMessages = filterMessages(archive.chat.messages, deferredSettings)
@@ -193,7 +212,18 @@ export function Studio({ archive, onReset }: StudioProps) {
   const editorialMessages = filterMessages(archive.chat.messages, {
     ...settings,
     excludedMessageIds: [],
+    showMissingMedia: contentInitialView === 'missing' || settings.showMissingMedia,
   })
+  const missingVideoMessageIds = useMemo(() => {
+    const missingNames = new Set(originalArchive.missingMedia.map((name) => name.toLocaleLowerCase()))
+    const associations = new Map(settings.videoAssociations?.map((association) => [association.messageId, association]))
+    return originalArchive.chat.messages.filter((message) => {
+      const association = associations.get(message.id)
+      if (association) return !manualVideoFiles.has(association.attachmentId)
+      return message.kind === 'missing-media' || (!message.mediaName && hasMissingMediaMarker(message.body)) || Boolean(message.mediaName && isVideoMedia(message.mediaName) &&
+        missingNames.has(message.mediaName.toLocaleLowerCase()))
+    }).map((message) => message.id)
+  }, [originalArchive, settings.videoAssociations, manualVideoFiles])
   const editorialVisibleMessages = filterMessages(archive.chat.messages, settings)
   const pages = paginateMessages(filteredMessages, deferredSettings)
   const physicalPageCount = pages.length + 1 + (deferredSettings.backCover.enabled ? 1 : 0)
@@ -262,14 +292,16 @@ export function Studio({ archive, onReset }: StudioProps) {
   useEffect(() => {
     if (!selectedPhotoId) return
     const targetPage = pages.findIndex((page) => page.some((message) => (
-      (message.sourceMessageId ?? message.id) === selectedPhotoId &&
-      Boolean(message.mediaName)
+      (message.sourceMessageId ?? message.id) === selectedPhotoId
     )))
     if (targetPage < 0) {
       setSelectedPhotoId(null)
       return
     }
     setPageIndex(targetPage + 1)
+    if (!pages[targetPage].some((message) => (
+      (message.sourceMessageId ?? message.id) === selectedPhotoId && Boolean(message.mediaName || message.videoName)
+    ))) setSelectedPhotoId(null)
   }, [pages, selectedPhotoId])
 
   useEffect(() => {
@@ -316,16 +348,16 @@ export function Studio({ archive, onReset }: StudioProps) {
 
   useEffect(() => {
     let active = true
-    const defaults = createInitialSettings(archive.chat, archive.fileName)
+    const defaults = createInitialSettings(originalArchive.chat, originalArchive.fileName)
 
     setProjectReady(false)
     setSaveStatus('loading')
-    void loadBookProject(archive.projectId)
+    void loadBookProject(originalArchive.projectId)
       .then((project) => {
         if (!active) return
         dispatchSettings({
           type: 'replace',
-          value: normalizeSavedSettings(project?.settings, defaults, archive.chat),
+          value: normalizeSavedSettings(project?.settings, defaults, originalArchive.chat),
         })
         setProjectReady(true)
         setSaveStatus('saved')
@@ -340,7 +372,7 @@ export function Studio({ archive, onReset }: StudioProps) {
     return () => {
       active = false
     }
-  }, [archive])
+  }, [originalArchive])
 
   useEffect(() => {
     if (!projectReady) return
@@ -688,6 +720,58 @@ export function Studio({ archive, onReset }: StudioProps) {
     })
   }
 
+  const chooseManualVideo = (messageId: string) => {
+    pendingVideoMessageId.current = messageId
+    setVideoAssociationError(null)
+    setVideoAssociationNotice(null)
+    videoFileInput.current?.click()
+  }
+
+  const associateManualVideo = (file: File | undefined) => {
+    const messageId = pendingVideoMessageId.current
+    pendingVideoMessageId.current = null
+    if (!file || !messageId) return
+    if (!isValidManualVideoFileName(file.name) || file.size === 0) {
+      setVideoAssociationError('Choisissez un fichier vidéo non vide : MP4, MOV, M4V, AVI, WebM ou 3GP.')
+      return
+    }
+    const attachmentId = crypto.randomUUID()
+    setVideoAssociationNotice('Vidéo associée au message.')
+    setManualVideoFiles((current) => new Map(current).set(attachmentId, file))
+    dispatchSettings({
+      type: 'commit',
+      update: (current) => {
+        const previous = current.videoAssociations?.find((association) => association.messageId === messageId)
+        return {
+          ...current,
+          videoAssociations: [
+            ...(current.videoAssociations ?? []).filter((association) => association.messageId !== messageId),
+            { messageId, fileName: file.name, attachmentId },
+          ],
+          photoOverrides: previous && previous.fileName !== file.name
+            ? current.photoOverrides.map((override) => override.messageId === messageId ? { ...override, videoTime: undefined } : override)
+            : current.photoOverrides,
+        }
+      },
+    })
+  }
+
+  const removeManualVideo = (messageId: string) => {
+    const mediaName = manualVideoMediaName(messageId)
+    dispatchSettings({
+      type: 'commit',
+      update: (current) => ({
+        ...current,
+        videoAssociations: (current.videoAssociations ?? []).filter((association) => association.messageId !== messageId),
+        coverMediaName: current.coverMediaName === mediaName ? null : current.coverMediaName,
+        coverPhotoOverride: current.coverPhotoOverride?.mediaName === mediaName ? null : current.coverPhotoOverride,
+        backCover: current.backCover.mediaName === mediaName
+          ? { ...current.backCover, mediaName: null, photoOverride: null }
+          : current.backCover,
+      }),
+    })
+  }
+
   const resetPhotoOverride = (messageId: string) => {
     dispatchSettings({
       type: 'commit',
@@ -823,7 +907,7 @@ export function Studio({ archive, onReset }: StudioProps) {
   const inspectPhoto = (messageId: string) => {
     const targetPage = pages.findIndex((page) => page.some((message) => (
       (message.sourceMessageId ?? message.id) === messageId &&
-      Boolean(message.mediaName)
+      Boolean(message.mediaName || message.videoName)
     )))
     if (targetPage < 0) return
     inspectorReturnWorkspace.current = activeWorkspace
@@ -1029,10 +1113,13 @@ export function Studio({ archive, onReset }: StudioProps) {
 
   const downloadPreparedPdf = async () => {
     if (!printSnapshot) return
+    const report = preflightReport ?? undefined
     setPreflightReport(null)
     setPrintError(null)
     setPrintProgress(0)
     setIsGeneratingPdf(true)
+    const controller = new AbortController()
+    pdfAbortController.current = controller
     try {
       const {
         directPdfFileName,
@@ -1044,6 +1131,8 @@ export function Studio({ archive, onReset }: StudioProps) {
         messages: printSnapshot.messages,
         pages: printSnapshot.pages,
         onProgress: setPrintProgress,
+        signal: controller.signal,
+        report,
       })
       const url = URL.createObjectURL(blob)
       setPreparedPdf({
@@ -1052,11 +1141,15 @@ export function Studio({ archive, onReset }: StudioProps) {
         size: blob.size,
       })
       setPrintSnapshot(null)
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
       setPrintError(
-        'Le PDF direct n’a pas pu être créé. Utilisez l’impression système ou réduisez la période.',
+        error instanceof Error
+          ? `Le PDF n’a pas pu être créé : ${error.message}`
+          : 'Le PDF direct n’a pas pu être créé. Utilisez l’impression système ou réduisez la période.',
       )
     } finally {
+      pdfAbortController.current = null
       setIsGeneratingPdf(false)
     }
   }
@@ -1166,8 +1259,35 @@ export function Studio({ archive, onReset }: StudioProps) {
     }
   }
 
+  const workspaceNavigation = (
+    <nav className="workspace-switcher" aria-label="Réglages du livre">
+      {WORKSPACE_OPTIONS.map(({ id, label, icon: Icon, className }) => {
+        const isActive = (activeWorkspace ?? 'couverture') === id
+        return (
+          <button
+            key={id}
+            type="button"
+            className={`${className}${isActive ? ' is-active' : ''}`}
+            aria-pressed={isActive}
+            onClick={() => openWorkspace(id)}
+          >
+            <Icon size={16} aria-hidden="true" />
+            {label}
+            {id === 'souvenirs' && settings.excludedMessageIds.length > 0 ? (
+              <span>{settings.excludedMessageIds.length}</span>
+            ) : null}
+          </button>
+        )
+      })}
+    </nav>
+  )
+
   return (
     <main className="studio">
+      <input ref={videoFileInput} type="file" accept="video/*,.mp4,.mov,.m4v,.avi,.webm,.3gp" hidden onChange={(event) => {
+        associateManualVideo(event.currentTarget.files?.[0])
+        event.currentTarget.value = ''
+      }} />
       <div className="studio-toolbar">
         <div className="studio-file">
           <span className="file-status" aria-hidden="true"><Check size={13} /></span>
@@ -1179,6 +1299,7 @@ export function Studio({ archive, onReset }: StudioProps) {
             </span>
           </div>
         </div>
+        {workspaceNavigation}
         <div className="toolbar-actions">
           <div className="project-menu" ref={projectMenuRef}>
             <button
@@ -1283,27 +1404,6 @@ export function Studio({ archive, onReset }: StudioProps) {
         </div>
       </div>
 
-      <nav className="workspace-switcher" aria-label="Réglages du livre">
-        {WORKSPACE_OPTIONS.map(({ id, label, icon: Icon, className }) => {
-          const isActive = (activeWorkspace ?? 'couverture') === id
-          return (
-            <button
-              key={id}
-              type="button"
-              className={`${className}${isActive ? ' is-active' : ''}`}
-              aria-pressed={isActive}
-              onClick={() => openWorkspace(id)}
-            >
-              <Icon size={16} aria-hidden="true" />
-              {label}
-              {id === 'souvenirs' && settings.excludedMessageIds.length > 0 ? (
-                <span>{settings.excludedMessageIds.length}</span>
-              ) : null}
-            </button>
-          )
-        })}
-      </nav>
-
       {printError ? <p className="print-error" role="alert">{printError}</p> : null}
 
       <div className={`studio-layout${activeWorkspace ? ' has-content-panel' : ''}`}>
@@ -1374,6 +1474,12 @@ export function Studio({ archive, onReset }: StudioProps) {
             }}
             photoOverrides={settings.photoOverrides}
             captionOverrides={settings.captionOverrides}
+            videoAssociations={settings.videoAssociations ?? []}
+            missingVideoMessageIds={missingVideoMessageIds}
+            connectedVideoIds={(settings.videoAssociations ?? []).filter((association) => manualVideoFiles.has(association.attachmentId)).map((association) => association.messageId)}
+            videoAssociationError={videoAssociationError}
+            videoAssociationNotice={videoAssociationNotice}
+            onChooseVideo={chooseManualVideo}
             participantProfiles={settings.participantProfiles}
             dateFrom={settings.dateFrom}
             dateTo={settings.dateTo}
@@ -1449,6 +1555,12 @@ export function Studio({ archive, onReset }: StudioProps) {
       {selectedPhotoMessage && selectedPhotoOverride ? (
         <PhotoInspector
           message={selectedPhotoMessage}
+          archive={archive}
+          displayMediaName={settings.videoAssociations?.find((association) => association.messageId === selectedPhotoMessage.id)?.fileName}
+          videoAssociationError={videoAssociationError}
+          manualVideoConnected={settings.videoAssociations?.some((association) => association.messageId === selectedPhotoMessage.id && manualVideoFiles.has(association.attachmentId))}
+          onChooseVideo={settings.videoAssociations?.some((association) => association.messageId === selectedPhotoMessage.id) ? () => chooseManualVideo(selectedPhotoMessage.id) : undefined}
+          onRemoveVideo={settings.videoAssociations?.some((association) => association.messageId === selectedPhotoMessage.id) ? () => removeManualVideo(selectedPhotoMessage.id) : undefined}
           override={selectedPhotoOverride}
           caption={selectedCaptionOverride?.text ?? selectedPhotoMessage.body}
           captionEdited={Boolean(selectedCaptionOverride)}
@@ -1523,12 +1635,13 @@ export function Studio({ archive, onReset }: StudioProps) {
             </h2>
             <progress max="100" value={printProgress} />
             <span>{printProgress} %</span>
-            {isPreparingPrint ? (
+            {isPreparingPrint || isGeneratingPdf ? (
               <button
                 type="button"
                 className="button secondary-button"
                 onClick={() => {
                   cancelPrint.current = true
+                  pdfAbortController.current?.abort()
                 }}
               >
                 Annuler
@@ -1541,6 +1654,7 @@ export function Studio({ archive, onReset }: StudioProps) {
       {preflightReport ? (
         <PreflightDialog
           report={preflightReport}
+          mediaNames={Object.fromEntries((settings.videoAssociations ?? []).map((association) => [manualVideoMediaName(association.messageId), association.fileName]))}
           onCancel={closePreflight}
           onDownload={() => void downloadPreparedPdf()}
           onPrint={printPreparedDocument}

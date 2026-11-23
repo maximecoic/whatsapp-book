@@ -7,6 +7,7 @@ import {
 } from '@zip.js/zip.js'
 import { parseWhatsAppChat } from './chat-parser'
 import type { ParseOptions, ParsedChat } from './chat-types'
+import { isVideoMedia } from './video-frame'
 
 const MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024
 const MAX_ENTRIES = 20_000
@@ -78,6 +79,10 @@ function mediaType(fileName: string): string {
     heic: 'image/heic',
     mp4: 'video/mp4',
     mov: 'video/quicktime',
+    m4v: 'video/mp4',
+    avi: 'video/x-msvideo',
+    webm: 'video/webm',
+    '3gp': 'video/3gpp',
     m4a: 'audio/mp4',
     mp3: 'audio/mpeg',
     opus: 'audio/opus',
@@ -142,6 +147,7 @@ class OpenChatArchive implements ChatArchive {
     if (!entry || entry.uncompressedSize > MAX_MEDIA_BYTES) return null
 
     const promise = entry.getData(new BlobWriter(mediaType(name))).catch(() => null)
+    if (isVideoMedia(name)) return promise
     this.blobPromises.set(key, promise)
     return promise
   }

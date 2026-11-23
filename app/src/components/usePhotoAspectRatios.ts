@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { ChatArchive } from '../lib/archive-reader'
+import { getVideoFrame, isVideoMedia } from '../lib/video-frame'
 
 interface AspectRatioStore {
   snapshot: Record<string, number>
@@ -36,7 +37,9 @@ export function getPhotoAspectRatios(archive: ChatArchive): Record<string, numbe
 
 export async function inspectPhotoAspectRatio(archive: ChatArchive, name: string): Promise<void> {
   if (getPhotoAspectRatios(archive)[name]) return
-  const url = await archive.getMediaUrl(name)
+  const frame = isVideoMedia(name) ? await getVideoFrame(archive, name) : null
+  const temporaryUrl = frame ? URL.createObjectURL(frame) : null
+  const url = isVideoMedia(name) ? temporaryUrl : await archive.getMediaUrl(name)
   if (!url) return
   const image = new Image()
   image.src = url
@@ -45,6 +48,8 @@ export async function inspectPhotoAspectRatio(archive: ChatArchive, name: string
     recordPhotoAspectRatio(archive, name, image.naturalWidth, image.naturalHeight)
   } catch {
     return
+  } finally {
+    if (temporaryUrl) URL.revokeObjectURL(temporaryUrl)
   }
 }
 

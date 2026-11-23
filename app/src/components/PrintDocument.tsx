@@ -21,7 +21,7 @@ export function PrintDocument({
   messages,
   pages,
 }: PrintDocumentProps) {
-  const dimensions = getPageDimensions(settings.format, settings.orientation)
+  const dimensions = getPageDimensions(settings.format, settings.orientation, settings.customSize)
   const pageStyle = {
     '--book-accent': settings.accent,
     '--book-font-scale': settings.fontScale,

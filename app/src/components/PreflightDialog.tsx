@@ -15,6 +15,7 @@ import type {
 
 interface PreflightDialogProps {
   report: PhotoPreflightReport
+  mediaNames?: Record<string, string>
   onCancel(): void
   onDownload(): void
   onPrint(): void
@@ -32,14 +33,15 @@ const QUALITY_META: Record<PhotoQualityStatus, {
   unavailable: { label: 'Indisponibles', detail: 'non lisibles', icon: ImageOff },
 }
 
-function issueLabel(entry: PhotoQualityEntry): string {
+function issueLabel(entry: PhotoQualityEntry, mediaNames: Record<string, string>): string {
   if (entry.context === 'cover') return 'Couverture'
   if (entry.context === 'back-cover') return 'Quatrième de couverture'
-  return entry.mediaName
+  return mediaNames[entry.mediaName] ?? entry.mediaName
 }
 
 export function PreflightDialog({
   report,
+  mediaNames = {},
   onCancel,
   onDownload,
   onPrint,
@@ -113,7 +115,7 @@ export function PreflightDialog({
                   >
                     <Icon size={17} aria-hidden="true" />
                     <span>
-                      <strong>Page {entry.page} · {issueLabel(entry)}</strong>
+                      <strong>Page {entry.page} · {issueLabel(entry, mediaNames)}</strong>
                       <small>
                         {entry.dpi === null
                           ? 'Image indisponible ou format non lisible'

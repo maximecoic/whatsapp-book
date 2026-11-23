@@ -40,6 +40,54 @@ const chat: ParsedChat = {
 }
 
 describe('normalizeSavedSettings', () => {
+  it('restores manual video associations and their individual settings', () => {
+    const defaults = createInitialSettings(chat, 'chat.zip')
+    const override = { messageId: 'one', layout: 'auto' as const, fit: 'contain' as const, focalX: 50, focalY: 50, rotation: 0 as const, showCaption: true, videoTime: 3.2 }
+    const saved = { ...defaults, videoAssociations: [{ messageId: 'one', fileName: 'vacances.mov', attachmentId: 'attachment-one' }], photoOverrides: [override] }
+    expect(normalizeSavedSettings(saved, defaults, chat)).toMatchObject({ videoAssociations: saved.videoAssociations, photoOverrides: [override] })
+  })
+
+  it('rejects invalid manual associations and preserves edited text independently of the media', () => {
+    const defaults = createInitialSettings(chat, 'chat.zip')
+    const saved = {
+      ...defaults,
+      videoAssociations: [
+        { messageId: 'one', fileName: 'souvenir.mp4', attachmentId: 'attachment-one' },
+        { messageId: 'one', fileName: 'autre.mov', attachmentId: 'attachment-two' },
+        { messageId: 'photo', fileName: 'souvenir.mp4', attachmentId: 'attachment-three' },
+        { messageId: 'missing', fileName: 'souvenir.mp4', attachmentId: 'attachment-four' },
+        { messageId: 'one', fileName: '../video.mp4', attachmentId: 'attachment-five' },
+      ],
+      captionOverrides: [{ messageId: 'one', text: 'Texte conservé' }],
+    }
+    const result = normalizeSavedSettings(saved, defaults, chat)
+    expect(result.videoAssociations).toEqual([saved.videoAssociations[0]])
+    expect(result.captionOverrides).toEqual(saved.captionOverrides)
+  })
+  it('restores a video frame time and text-only choice', () => {
+    const video = { ...messages[1], id: 'video', mediaName: 'VID-001.mp4' }
+    const videoChat = { ...chat, messages: [...messages, video] }
+    const defaults = createInitialSettings(videoChat, 'chat.zip')
+    const override = { messageId: video.id, layout: 'auto' as const, fit: 'contain' as const, focalX: 50, focalY: 50, rotation: 0 as const, showCaption: true, videoTime: 3.2, videoTextOnly: true }
+    expect(normalizeSavedSettings({ ...defaults, photoOverrides: [override] }, defaults, videoChat).photoOverrides)
+      .toEqual([override])
+  })
+  it('restores individual text-page presentation settings', () => {
+    const defaults = createInitialSettings(chat, 'chat.zip')
+    const page = {
+      id: 'custom-text', kind: 'text' as const, title: 'Souvenir', body: 'Notre histoire', anchorMessageId: null,
+      layout: { vertical: 'bottom' as const, align: 'center' as const, fontSize: 16, titleSize: 30, widthPercent: 70 },
+    }
+    expect(normalizeSavedSettings({ ...defaults, editorialPages: [page] }, defaults, chat).editorialPages)
+      .toEqual([page])
+  })
+
+  it('restores custom physical dimensions with safe bounds', () => {
+    const defaults = createInitialSettings(chat, 'chat.zip')
+    expect(normalizeSavedSettings({ ...defaults, format: 'custom', customSize: { widthMm: 180, heightMm: 240 } }, defaults, chat))
+      .toMatchObject({ format: 'custom', customSize: { widthMm: 180, heightMm: 240 } })
+  })
+
   it.each([
     ['album', 'collage'],
     ['conversation', 'journal'],

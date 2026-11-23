@@ -16,10 +16,11 @@ import {
   X,
 } from 'lucide-react'
 import type { CSSProperties } from 'react'
-import type {
-  BackCoverLayout,
-  BookSettings,
-  BookTheme,
+import {
+  normalizeCustomSize,
+  type BackCoverLayout,
+  type BookSettings,
+  type BookTheme,
 } from '../lib/book-model'
 import {
   BOOK_STYLE_PRESETS,
@@ -48,7 +49,7 @@ import { useResponsiveWorkspacePanel } from './useResponsiveWorkspacePanel'
 
 type CoreStyleSettings = Pick<
   BookSettings,
-  'theme' | 'format' | 'orientation' | 'fontScale' | 'maxPhotosPerPage' | 'backCover'
+  'theme' | 'format' | 'customSize' | 'orientation' | 'fontScale' | 'maxPhotosPerPage' | 'backCover'
 >
 
 interface StylePanelProps {
@@ -276,6 +277,7 @@ export function StylePanel({
                   <option value="a4">A4 · 210 × 297</option>
                   <option value="letter">Letter · 216 × 279</option>
                   <option value="square">Carré · 210 × 210</option>
+                  <option value="custom">Personnalisé</option>
                 </select>
               </label>
               <div className="orientation-control" role="group" aria-label="Orientation">
@@ -301,6 +303,28 @@ export function StylePanel({
                 </button>
               </div>
             </div>
+
+            {settings.format === 'custom' ? (
+              <div className="inline-fields custom-page-fields">
+                {(['widthMm', 'heightMm'] as const).map((dimension) => (
+                  <label className="field-label" key={dimension}>
+                    {dimension === 'widthMm' ? 'Largeur (mm)' : 'Hauteur (mm)'}
+                    <input
+                      key={normalizeCustomSize(settings.customSize)[dimension]}
+                      type="number"
+                      min="80"
+                      max="420"
+                      step="0.1"
+                      defaultValue={normalizeCustomSize(settings.customSize)[dimension]}
+                      onBlur={(event) => onSettingChange('customSize', normalizeCustomSize({
+                        ...normalizeCustomSize(settings.customSize),
+                        [dimension]: event.target.value === '' ? undefined : Number(event.target.value),
+                      }))}
+                    />
+                  </label>
+                ))}
+              </div>
+            ) : null}
 
             <label className="range-label">
               <span>Taille du texte <output>{Math.round(settings.fontScale * 100)} %</output></span>

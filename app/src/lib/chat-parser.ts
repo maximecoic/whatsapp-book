@@ -13,7 +13,7 @@ const IOS_HEADER = new RegExp(`^\\[${DATE_PART}\\s+${TIME_PART}\\]\\s*(.*)$`, 'i
 const ANDROID_HEADER = new RegExp(`^${DATE_PART},?\\s+${TIME_PART}\\s+-\\s+(.*)$`, 'i')
 const SENDER_AND_BODY = /^(.{1,120}?):(?:\s|$)([\s\S]*)$/
 const MEDIA_EXTENSIONS =
-  'jpe?g|png|webp|heic|gif|mp4|mov|m4v|avi|opus|ogg|m4a|mp3|wav|pdf'
+  'jpe?g|png|webp|heic|gif|mp4|mov|m4v|avi|webm|3gp|opus|ogg|m4a|mp3|wav|pdf'
 const ANGLE_ATTACHMENT = new RegExp(
   `<\\s*[^:>]+:\\s*([^>]+\\.(?:${MEDIA_EXTENSIONS}))\\s*>`,
   'i',
@@ -22,10 +22,19 @@ const PAREN_ATTACHMENT = new RegExp(
   `([^\\n<>]+?\\.(?:${MEDIA_EXTENSIONS}))\\s+\\((?:file attached|fichier joint)\\)`,
   'i',
 )
+const NAMED_PAREN_ATTACHMENT = new RegExp(
+  `((?:IMG|VID|AUD|PTT|STK|DOC|PHOTO|[0-9]{6,})[-\\w .@()+']*\\.(?:${MEDIA_EXTENSIONS}))\\s+\\((?:file attached|fichier joint)\\)`,
+  'i',
+)
 const GENERIC_MEDIA_NAME = new RegExp(
   `((?:IMG|VID|AUD|PTT|STK|DOC|PHOTO|[0-9]{6,})[-\\w .@()+']*\\.(?:${MEDIA_EXTENSIONS}))`,
   'i',
 )
+const MISSING_MEDIA = /<(?:media|m[eé]dia)\s+(?:omitted|omis)>|(?:image|photo|vid[eé]o|audio|sticker|m[eé]dia)[^\n]*(?:omitted|absent(?:es|e|s)?|manquant(?:es|e|s)?|non inclus(?:es|e|s)?)/i
+
+export function hasMissingMediaMarker(body: string): boolean {
+  return MISSING_MEDIA.test(body)
+}
 
 interface MessageHeader {
   timestamp: number
@@ -131,6 +140,7 @@ function parseHeader(line: string, dateOrder: DateOrder): MessageHeader | null {
 function extractMedia(body: string): { body: string; mediaName: string | null } {
   const attachmentMatch =
     body.match(ANGLE_ATTACHMENT) ??
+    body.match(NAMED_PAREN_ATTACHMENT) ??
     body.match(PAREN_ATTACHMENT) ??
     body.match(GENERIC_MEDIA_NAME)
 
@@ -153,12 +163,9 @@ function classifyMessage(body: string, mediaName: string | null): MessageKind {
     return 'deleted'
   }
 
-  if (
-    /<media omitted>|(?:image|photo|vid[eé]o|audio|sticker|m[eé]dia).*(?:omitted|absent|manquant|non inclus)/.test(
-      normalized,
-    )
-  ) {
-    return 'missing-media'
+  if (hasMissingMediaMarker(body)) {
+    const remaining = body.replace(MISSING_MEDIA, '').replace(/^[\s:;,.\-–—]+|[\s:;,.\-–—]+$/g, '')
+    return remaining ? 'message' : 'missing-media'
   }
 
   if (

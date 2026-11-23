@@ -14,6 +14,9 @@ import {
   getPhotoOverride,
   isDefaultPhotoOverride,
   paginateMessages,
+  normalizeCustomSize,
+  getEditorialTextGeometry,
+  normalizeEditorialLayout,
 } from './book-model'
 
 function message(
@@ -48,6 +51,74 @@ const chat: ParsedChat = {
 }
 
 describe('book model', () => {
+  it('keeps edited text visible when a previously attached omitted video is removed', () => {
+    const settings = createInitialSettings(chat, 'chat.zip')
+    const missing: ChatMessage = { ...message('missing', 1, 'Lina'), kind: 'missing-media', body: '<media omitted>' }
+    settings.showMissingMedia = false
+    settings.captionOverrides = [{ messageId: missing.id, text: 'Notre souvenir. '.repeat(120) }]
+    const visible = filterMessages([missing], settings)
+    const rendered = paginateMessages(visible, settings).flat()
+    expect(visible).toHaveLength(1)
+    expect(rendered[0].kind).toBe('message')
+    expect(rendered.map((entry) => entry.body).join(' ').replace(/\s+/g, ' ').trim())
+      .toBe(settings.captionOverrides[0].text.trim())
+  })
+  it.each(['journal', 'gazette', 'photo-story', 'collage'] as const)('paginates text-only videos in %s without losing their text', (theme) => {
+    const settings = { ...createInitialSettings(chat, 'chat.zip'), theme }
+    const video = { ...message('video', 1, 'Lina', 'media'), mediaName: 'VID-001.mp4', body: 'Un souvenir précieux. '.repeat(120) }
+    settings.photoOverrides = [{ ...getPhotoOverride(settings, video.id), videoTextOnly: true, showCaption: false }]
+    const pages = paginateMessages([video], settings)
+    const rendered = pages.flat().filter((entry) => entry.sourceMessageId === video.id)
+    expect(rendered[0]).toMatchObject({ videoName: video.mediaName, mediaName: null, kind: 'message' })
+    expect(rendered.map((entry) => entry.body).join(' ').replace(/\s+/g, ' ').trim())
+      .toBe(video.body.trim())
+  })
+
+  it('does not hide a video caption when a legacy photo setting hides captions', () => {
+    const settings = createInitialSettings(chat, 'chat.zip')
+    const video = { ...message('video', 1, 'Lina', 'media'), mediaName: 'VID-001.mp4', body: 'Un souvenir précieux. '.repeat(120) }
+    settings.photoOverrides = [{ ...getPhotoOverride(settings, video.id), showCaption: false }]
+    const rendered = paginateMessages([video], settings).flat()
+    expect(rendered.length).toBeGreaterThan(1)
+    expect(rendered.map((entry) => entry.body).join(' ').replace(/\s+/g, ' ').trim()).toBe(video.body.trim())
+  })
+  it('keeps existing dedications centered when no custom layout was saved', () => {
+    const settings = createInitialSettings(chat, 'chat.zip')
+    settings.editorialPages = [{ id: 'legacy', kind: 'dedication', title: 'Pour nous', body: 'Merci', anchorMessageId: null }]
+    const editorial = paginateMessages([], settings)[0][0]
+    expect(getEditorialTextGeometry(editorial, settings).layout.align).toBe('center')
+  })
+
+  it('positions and paginates styled free text on a custom page', () => {
+    const settings = createInitialSettings(chat, 'chat.zip')
+    settings.format = 'custom'
+    settings.customSize = { widthMm: 180, heightMm: 240 }
+    settings.editorialPages = [{
+      id: 'free-text', kind: 'text', title: 'Notre voyage', body: 'Un beau souvenir. '.repeat(300),
+      anchorMessageId: null,
+      layout: { ...normalizeEditorialLayout(undefined), vertical: 'bottom', align: 'center', fontSize: 18, widthPercent: 70 },
+    }]
+    const pages = paginateMessages([], settings)
+    expect(pages.length).toBeGreaterThan(1)
+    pages.forEach((page) => {
+      const geometry = getEditorialTextGeometry(page[0], settings)
+      expect(geometry.layout.align).toBe('center')
+      expect(geometry.fontPt).toBe(18)
+      expect(geometry.topMm + geometry.heightMm).toBeLessThan(240)
+    })
+    expect(pages.flat().map(({ body }) => body).join(' ').replace(/\s+/g, ' ').trim())
+      .toBe(settings.editorialPages[0].body.trim())
+  })
+
+  it('uses custom physical dimensions and preserves orientation', () => {
+    expect(getPageDimensions('custom', 'portrait', { widthMm: 180, heightMm: 240 }))
+      .toEqual({ widthMm: 180, heightMm: 240, label: 'Personnalisé' })
+    expect(getPageDimensions('custom', 'landscape', { widthMm: 180, heightMm: 240 }))
+      .toMatchObject({ widthMm: 240, heightMm: 180 })
+    expect(normalizeCustomSize({ widthMm: 0, heightMm: Number.NaN }))
+      .toEqual({ widthMm: 80, heightMm: 210 })
+  })
+
   it.each((['gazette', 'photo-story', 'collage'] as const).flatMap((theme) => (
     (['a5', 'a4', 'letter', 'square'] as const).flatMap((format) => (
       (['portrait', 'landscape'] as const).flatMap((orientation) => (

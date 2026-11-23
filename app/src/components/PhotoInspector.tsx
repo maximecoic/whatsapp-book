@@ -4,14 +4,18 @@ import {
   EyeOff,
   Focus,
   Frame,
+  Film,
   Maximize2,
   PanelTop,
   RotateCcw,
   Scan,
+  Trash2,
   WandSparkles,
   X,
 } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ChatArchive } from '../lib/archive-reader'
+import { DEFAULT_VIDEO_TIME, isVideoMedia } from '../lib/video-frame'
 import type {
   PhotoFit,
   PhotoLayout,
@@ -24,10 +28,18 @@ import type { ChatMessage } from '../lib/chat-types'
 interface PhotoInspectorValue extends PhotoTransform {
   layout?: PhotoLayout
   showCaption?: boolean
+  videoTime?: number
+  videoTextOnly?: boolean
 }
 
 interface PhotoInspectorProps {
   message: ChatMessage
+  archive?: ChatArchive
+  displayMediaName?: string
+  manualVideoConnected?: boolean
+  videoAssociationError?: string | null
+  onChooseVideo?(): void
+  onRemoveVideo?(): void
   override: PhotoInspectorValue
   context?: 'content' | 'cover' | 'back-cover'
   caption?: string
@@ -56,6 +68,12 @@ const ROTATIONS: PhotoRotation[] = [0, 90, 180, 270]
 
 export function PhotoInspector({
   message,
+  archive,
+  displayMediaName,
+  manualVideoConnected,
+  videoAssociationError,
+  onChooseVideo,
+  onRemoveVideo,
   override,
   context = 'content',
   caption,
@@ -68,6 +86,30 @@ export function PhotoInspector({
   const isCover = context !== 'content'
   const isBackCover = context === 'back-cover'
   const historyScope = isBackCover ? 'back-cover-photo' : isCover ? 'cover-photo' : 'photo'
+  const isVideo = !isCover && isVideoMedia(message.mediaName)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [videoSource, setVideoSource] = useState<string | null>(null)
+  const [videoFailed, setVideoFailed] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    let temporaryUrl: string | null = null
+    setVideoSource(null)
+    setVideoFailed(false)
+    if (isVideo && archive && message.mediaName) {
+      void archive.getMediaBlob(message.mediaName).then((blob) => {
+        if (!active) return
+        const url = blob ? URL.createObjectURL(blob) : null
+        temporaryUrl = url
+        setVideoSource(url)
+        if (!url) setVideoFailed(true)
+      })
+    }
+    return () => {
+      active = false
+      if (temporaryUrl) URL.revokeObjectURL(temporaryUrl)
+    }
+  }, [archive, isVideo, message.mediaName])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -88,9 +130,9 @@ export function PhotoInspector({
             {isBackCover ? 'Réglage de quatrième' : isCover ? 'Réglage de couverture' : 'Réglage individuel'}
           </span>
           <h2 id="photo-inspector-title">
-            {isBackCover ? 'Photo de quatrième de couverture' : isCover ? 'Photo de couverture' : 'Photo'}
+            {isBackCover ? 'Photo de quatrième de couverture' : isCover ? 'Photo de couverture' : isVideo ? 'Vidéo' : 'Photo'}
           </h2>
-          <p title={message.mediaName ?? ''}>{message.mediaName}</p>
+          <p title={displayMediaName ?? message.mediaName ?? ''}>{displayMediaName ?? message.mediaName}</p>
         </div>
         <button
           type="button"
@@ -106,6 +148,45 @@ export function PhotoInspector({
       </header>
 
       <div className="photo-inspector-content">
+        {isVideo ? <section className="video-inspector-section">
+          <h3>Vidéo</h3>
+          {onChooseVideo ? <div className="video-association-controls">
+            <button type="button" className="video-frame-select" onClick={onChooseVideo}>
+              <Film size={15} /> {manualVideoConnected ? 'Remplacer la vidéo' : 'Reconnecter la vidéo'}
+            </button>
+            {onRemoveVideo ? <button type="button" className="video-frame-select" onClick={onRemoveVideo}><Trash2 size={15} /> Retirer</button> : null}
+          </div> : null}
+          {videoAssociationError ? <p className="video-association-error" role="alert">{videoAssociationError}</p> : null}
+          <div className="photo-fit-control" role="group" aria-label="Présentation de la vidéo">
+            <button type="button" className={!override.videoTextOnly ? 'is-active' : ''} aria-pressed={!override.videoTextOnly} onClick={() => onChange({ videoTextOnly: false })}>
+              <Film size={16} /> Image et texte
+            </button>
+            <button type="button" className={override.videoTextOnly ? 'is-active' : ''} aria-pressed={Boolean(override.videoTextOnly)} onClick={() => onChange({ videoTextOnly: true })}>
+              <EyeOff size={16} /> Texte seul
+            </button>
+          </div>
+          {videoSource ? <>
+            <video
+              ref={videoRef}
+              src={videoSource}
+              controls
+              preload="metadata"
+              onError={() => setVideoFailed(true)}
+              onLoadedMetadata={(event) => {
+                const video = event.currentTarget
+                if (Number.isFinite(video.duration)) video.currentTime = Math.min(override.videoTime ?? DEFAULT_VIDEO_TIME, Math.max(0, video.duration - 0.05))
+              }}
+            />
+            <button type="button" className="video-frame-select" disabled={videoFailed || Boolean(override.videoTextOnly)} onClick={() => {
+              const time = videoRef.current?.currentTime
+              if (time !== undefined && Number.isFinite(time)) onChange({ videoTime: Math.round(time * 10) / 10 })
+            }}>
+              <Frame size={15} /> Utiliser cette image
+            </button>
+            <span className="video-frame-time">Image choisie : {(override.videoTime ?? DEFAULT_VIDEO_TIME).toFixed(1)} s</span>
+          </> : null}
+          {videoFailed ? <p className="video-unavailable">Vidéo indisponible ou illisible. Le message reste imprimé.</p> : null}
+        </section> : null}
         {!isCover ? <section>
           <h3>Disposition</h3>
           <div className="photo-layout-control" role="group" aria-label="Disposition de la photo">
@@ -200,7 +281,7 @@ export function PhotoInspector({
 
         {!isCover ? <section>
           <h3>Légende</h3>
-          <label className="photo-caption-toggle">
+          {!isVideo ? <label className="photo-caption-toggle">
             <span>
               {override.showCaption ? <Eye size={15} /> : <EyeOff size={15} />}
               Afficher la légende
@@ -211,7 +292,7 @@ export function PhotoInspector({
               onChange={(event) => onChange({ showCaption: event.target.checked })}
             />
             <span className="toggle-track" aria-hidden="true"><span /></span>
-          </label>
+          </label> : null}
           {onCaptionChange ? (
             <label className="photo-caption-editor">
               <span>
@@ -234,7 +315,7 @@ export function PhotoInspector({
           <RotateCcw size={14} aria-hidden="true" />
           {isBackCover
             ? 'Réinitialiser la quatrième'
-            : isCover ? 'Réinitialiser la couverture' : 'Réinitialiser la photo'}
+            : isCover ? 'Réinitialiser la couverture' : isVideo ? 'Réinitialiser la vidéo' : 'Réinitialiser la photo'}
         </button>
       </footer>
     </aside>

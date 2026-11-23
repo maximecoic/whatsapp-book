@@ -2,15 +2,16 @@
 
 import { pdf } from '@react-pdf/renderer'
 import { DirectPdfDocument } from '../lib/direct-pdf'
+import { preparePdfFonts } from '../lib/pdf-fonts'
 import type {
   DirectPdfWorkerRequest,
   DirectPdfWorkerResponse,
 } from '../lib/direct-pdf-export'
 
 self.onmessage = (event: MessageEvent<DirectPdfWorkerRequest>) => {
-  void pdf(
+  void preparePdfFonts().then(() => pdf(
     <DirectPdfDocument {...event.data} />,
-  ).toBlob().then(
+  ).toBlob()).then(
     (blob) => {
       const response: DirectPdfWorkerResponse = { type: 'complete', blob }
       self.postMessage(response)

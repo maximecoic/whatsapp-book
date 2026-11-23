@@ -3,6 +3,8 @@ import type {
   ParsedChat,
   TableOfContentsEntry,
 } from './chat-types'
+import { DEFAULT_VIDEO_TIME, isVideoMedia, showMediaCaption } from './video-frame'
+import type { ManualVideoAssociation } from './manual-video'
 import {
   getCompositionLineWidth,
   getCompositionMetrics,
@@ -18,7 +20,7 @@ import {
   type CoverTitlePosition,
 } from './book-style'
 
-export type BookFormat = 'a5' | 'a4' | 'letter' | 'square'
+export type BookFormat = 'a5' | 'a4' | 'letter' | 'square' | 'custom'
 export type BookOrientation = 'portrait' | 'landscape'
 export type BookTheme = 'journal' | 'conversation' | 'album' | DesignedComposition
 export type PhotoLayout = 'auto' | 'wide' | 'half' | 'full-page'
@@ -36,6 +38,8 @@ export interface PhotoOverride extends PhotoTransform {
   messageId: string
   layout: PhotoLayout
   showCaption: boolean
+  videoTime?: number
+  videoTextOnly?: boolean
 }
 
 export interface CoverPhotoOverride extends PhotoTransform {
@@ -109,6 +113,29 @@ export interface EditorialPage {
   title: string
   body: string
   anchorMessageId: string | null
+  layout?: EditorialTextLayout
+}
+
+export interface EditorialTextLayout {
+  vertical: 'top' | 'center' | 'bottom'
+  align: 'left' | 'center' | 'right'
+  fontSize: number
+  titleSize: number
+  widthPercent: number
+}
+
+export function normalizeEditorialLayout(value: unknown): EditorialTextLayout {
+  const candidate = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const numeric = (input: unknown, fallback: number, min: number, max: number) => (
+    typeof input === 'number' && Number.isFinite(input) ? Math.min(max, Math.max(min, input)) : fallback
+  )
+  return {
+    vertical: ['top', 'center', 'bottom'].includes(String(candidate.vertical)) ? candidate.vertical as EditorialTextLayout['vertical'] : 'center',
+    align: ['left', 'center', 'right'].includes(String(candidate.align)) ? candidate.align as EditorialTextLayout['align'] : 'left',
+    fontSize: numeric(candidate.fontSize, 11, 8, 24),
+    titleSize: numeric(candidate.titleSize, 25, 12, 40),
+    widthPercent: numeric(candidate.widthPercent, 100, 50, 100),
+  }
 }
 
 export interface BookBookmark {
@@ -128,6 +155,7 @@ export interface BookSettings {
   title: string
   subtitle: string
   format: BookFormat
+  customSize?: { widthMm: number; heightMm: number }
   orientation: BookOrientation
   theme: BookTheme
   accent: string
@@ -147,6 +175,7 @@ export interface BookSettings {
   pageBreakBeforeIds: string[]
   chapters: BookChapter[]
   photoOverrides: PhotoOverride[]
+  videoAssociations?: ManualVideoAssociation[]
   photoAspectRatios?: Record<string, number>
   captionOverrides: CaptionOverride[]
   participantProfiles: ParticipantProfile[]
@@ -161,7 +190,7 @@ export interface PageDimensions {
   label: string
 }
 
-const FORMATS: Record<BookFormat, PageDimensions> = {
+const FORMATS: Record<Exclude<BookFormat, 'custom'>, PageDimensions> = {
   a5: { widthMm: 148, heightMm: 210, label: 'A5' },
   a4: { widthMm: 210, heightMm: 297, label: 'A4' },
   letter: { widthMm: 215.9, heightMm: 279.4, label: 'Letter' },
@@ -169,6 +198,14 @@ const FORMATS: Record<BookFormat, PageDimensions> = {
 }
 
 const BASE_BOOK_LINE_HEIGHT = 1.45
+
+export function normalizeCustomSize(value: unknown): { widthMm: number; heightMm: number } {
+  const candidate = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const dimension = (input: unknown, fallback: number) => typeof input === 'number' && Number.isFinite(input)
+    ? Math.round(Math.min(420, Math.max(80, input)) * 10) / 10
+    : fallback
+  return { widthMm: dimension(candidate.widthMm, 148), heightMm: dimension(candidate.heightMm, 210) }
+}
 
 function toDateInput(timestamp: number | null): string {
   if (timestamp === null) return ''
@@ -182,8 +219,11 @@ function toDateInput(timestamp: number | null): string {
 export function getPageDimensions(
   format: BookFormat,
   orientation: BookOrientation,
+  customSize?: { widthMm: number; heightMm: number },
 ): PageDimensions {
-  const dimensions = FORMATS[format]
+  const dimensions = format === 'custom'
+    ? { ...normalizeCustomSize(customSize), label: 'Personnalisé' }
+    : FORMATS[format]
   if (orientation === 'portrait') return dimensions
   return {
     ...dimensions,
@@ -225,6 +265,7 @@ export function createInitialSettings(
     pageBreakBeforeIds: [],
     chapters: [],
     photoOverrides: [],
+    videoAssociations: [],
     captionOverrides: [],
     participantProfiles: [],
     editorialPages: [],
@@ -269,7 +310,9 @@ export function isDefaultPhotoOverride(
     override.focalX === DEFAULT_PHOTO_OVERRIDE.focalX &&
     override.focalY === DEFAULT_PHOTO_OVERRIDE.focalY &&
     override.rotation === DEFAULT_PHOTO_OVERRIDE.rotation &&
-    override.showCaption === DEFAULT_PHOTO_OVERRIDE.showCaption
+    override.showCaption === DEFAULT_PHOTO_OVERRIDE.showCaption &&
+    (override.videoTime ?? DEFAULT_VIDEO_TIME) === DEFAULT_VIDEO_TIME &&
+    !override.videoTextOnly
   )
 }
 
@@ -296,12 +339,13 @@ export function filterMessages(
     : Number.POSITIVE_INFINITY
   const participants = new Set(settings.includedParticipants)
   const excludedMessages = new Set(settings.excludedMessageIds)
+  const editedMessages = new Set(settings.captionOverrides.filter((override) => override.text.trim()).map((override) => override.messageId))
 
   return messages.filter((message) => {
     if (excludedMessages.has(message.id)) return false
     if (message.timestamp < start || message.timestamp > end) return false
     if (message.kind === 'system') return settings.showSystem
-    if (message.kind === 'missing-media') return settings.showMissingMedia
+    if (message.kind === 'missing-media') return settings.showMissingMedia || editedMessages.has(message.id)
     if (message.kind === 'deleted') return settings.showDeleted
     return !message.sender || participants.has(message.sender)
   })
@@ -316,7 +360,11 @@ export function applyCaptionOverrides(
   )
   return messages.map((message) => {
     const caption = captions.get(message.id)
-    return caption === undefined ? message : { ...message, body: caption }
+    return caption === undefined ? message : {
+      ...message,
+      body: caption,
+      kind: message.kind === 'missing-media' && caption.trim() ? 'message' : message.kind,
+    }
   })
 }
 
@@ -345,6 +393,7 @@ function createEditorialMessage(
       pageId: page.id,
       kind: page.kind,
       title: page.title,
+      layout: page.layout,
     },
   }
 }
@@ -406,9 +455,10 @@ function pageCapacity(settings: BookSettings): number {
     a4: 40,
     letter: 37,
     square: 27,
+    custom: 22 * getPageDimensions(settings.format, settings.orientation, settings.customSize).heightMm / 210,
   }
   const orientationFactor =
-    settings.format !== 'square' && settings.orientation === 'landscape' ? 0.82 : 1
+    settings.format !== 'square' && settings.format !== 'custom' && settings.orientation === 'landscape' ? 0.82 : 1
   const themeFactor = settings.theme === 'album' ? 0.88 : 1
   return (
     (
@@ -426,7 +476,9 @@ function estimatedLineWidth(settings: BookSettings): number {
   if (isDesignedComposition(settings.theme)) {
     return getCompositionLineWidth(compositionOptions(settings, settings.theme))
   }
-  const baseWidth = settings.format !== 'square' && settings.orientation === 'landscape'
+  const baseWidth = settings.format === 'custom'
+    ? 62 * getPageDimensions(settings.format, settings.orientation, settings.customSize).widthMm / 148
+    : settings.format !== 'square' && settings.orientation === 'landscape'
     ? 92
     : 62
   const densityFactor = settings.artDirection.density === 'compact'
@@ -438,7 +490,7 @@ function estimatedLineWidth(settings: BookSettings): number {
     settings.artDirection.fontPair === 'correspondence'
     ? 0.94
     : 1
-  return Math.max(40, Math.round(baseWidth * densityFactor * fontFactor))
+  return Math.max(settings.format === 'custom' ? 18 : 40, Math.round(baseWidth * densityFactor * fontFactor))
 }
 
 function dateHeadingWeight(settings: BookSettings): number {
@@ -463,6 +515,30 @@ function textLineCount(body: string, lineWidth: number): number {
       (total, line) => total + Math.max(1, Math.ceil(line.length / lineWidth)),
       0,
     )
+}
+
+export function getEditorialTextGeometry(message: ChatMessage, settings: BookSettings) {
+  const dimensions = getPageDimensions(settings.format, settings.orientation, settings.customSize)
+  const layout = normalizeEditorialLayout(message.editorial?.layout)
+  if (!message.editorial?.layout && message.editorial?.kind === 'dedication') layout.align = 'center'
+  const paddingMm = Math.max(8, Math.min(dimensions.widthMm, dimensions.heightMm) * 0.08)
+  const widthMm = (dimensions.widthMm - paddingMm * 2) * layout.widthPercent / 100
+  const fontPt = layout.fontSize * settings.fontScale
+  const titlePt = layout.titleSize * settings.fontScale
+  const lineMm = fontPt * 25.4 / 72 * settings.artDirection.lineHeight
+  const characters = Math.max(10, Math.floor(widthMm / (fontPt * 25.4 / 72 * 0.56)))
+  const title = message.editorial?.title ?? ''
+  const titleLines = title ? textLineCount(title, Math.max(8, Math.floor(widthMm / (titlePt * 25.4 / 72 * 0.56)))) : 0
+  const headerMm = titleLines ? 5 + titleLines * titlePt * 25.4 / 72 * 1.1 + 6 : 0
+  const availableMm = dimensions.heightMm - paddingMm * 2 - 8
+  const heightMm = headerMm + textLineCount(message.body, characters) * lineMm + (message.continuation ? 6 : 0)
+  const freeMm = Math.max(0, availableMm - heightMm)
+  return {
+    layout, widthMm, heightMm, fontPt, titlePt, lineMm, headerMm, characters,
+    leftMm: (dimensions.widthMm - widthMm) / 2,
+    topMm: paddingMm + (layout.vertical === 'center' ? freeMm / 2 : layout.vertical === 'bottom' ? freeMm : 0),
+    maxLines: Math.max(1, Math.floor((availableMm - headerMm - 6) / lineMm)),
+  }
 }
 
 const DAY_LAYOUT_LINE_WIDTH = 90
@@ -511,7 +587,7 @@ export function getAlbumDayLayout(
       messageId,
       ...DEFAULT_PHOTO_OVERRIDE,
     }
-    const caption = override.showCaption ? message.body : ''
+    const caption = showMediaCaption(message.mediaName, override.showCaption) ? message.body : ''
     const hasLongCaption = override.layout === 'auto' && textLineCount(
       caption,
       DAY_LAYOUT_LINE_WIDTH,
@@ -560,7 +636,7 @@ export function getMediaLayoutWeight(
   if (!message.mediaName) return 1
   return 1 +
     textLineCount(
-      override.showCaption ? message.body : '',
+      showMediaCaption(message.mediaName, override.showCaption) ? message.body : '',
       DAY_LAYOUT_LINE_WIDTH,
     ) * MEDIA_LAYOUT_LINE_WEIGHT
 }
@@ -585,7 +661,7 @@ export function getDayLayoutWeight(
       const messageId = message.sourceMessageId ?? message.id
       const override = overrideByMessage.get(messageId)
       return total + textLineCount(
-      override?.showCaption === false ? '' : message.body,
+      showMediaCaption(message.mediaName, override?.showCaption) ? message.body : '',
       theme === 'album' && !albumWideMessages.has(message.id)
         ? ALBUM_COLUMN_LINE_WIDTH
         : DAY_LAYOUT_LINE_WIDTH,
@@ -636,7 +712,7 @@ function messageWeight(message: ChatMessage, settings: BookSettings): number {
     ? getPhotoOverride(settings, sourceMessageId)
     : null
   const textWeight = textLineCount(
-    override?.showCaption === false ? '' : message.body,
+    showMediaCaption(message.mediaName, override?.showCaption) ? message.body : '',
     estimatedLineWidth(settings),
   )
 
@@ -680,17 +756,20 @@ function splitOversizedMessage(
     return [message]
   }
 
-  const lineWidth = estimatedLineWidth(settings)
+  const editorialGeometry = message.kind === 'editorial' && message.editorial?.kind !== 'table-of-contents'
+    ? getEditorialTextGeometry(message, settings)
+    : null
+  const lineWidth = editorialGeometry?.characters ?? estimatedLineWidth(settings)
   const photoOverride = message.mediaName
     ? getPhotoOverride(settings, message.sourceMessageId ?? message.id)
     : null
-  if (photoOverride?.showCaption === false) return [message]
+  if (!showMediaCaption(message.mediaName, photoOverride?.showCaption)) return [message]
   const reservedWeight = message.kind === 'media'
     ? mediaBaseWeight(settings, message) + 2
     : message.kind === 'editorial'
       ? 7
       : 3.8
-  const maxLines = Math.max(3, Math.floor(availableWeight - reservedWeight))
+  const maxLines = editorialGeometry?.maxLines ?? Math.max(3, Math.floor(availableWeight - reservedWeight))
   const lines = wrapTextLines(message.body, lineWidth)
   if (lines.length <= maxLines) return [message]
 
@@ -707,6 +786,7 @@ function splitOversizedMessage(
       body,
       kind: continuesMediaCaption ? 'message' : message.kind,
       mediaName: continuesMediaCaption ? null : message.mediaName,
+      videoName: index === 0 ? message.videoName : undefined,
       continuation: { part: index + 1, total: bodies.length },
       sourceMessageId: message.sourceMessageId ?? message.id,
       chapterTitle: index === 0 ? message.chapterTitle : undefined,
@@ -721,15 +801,16 @@ function dayKey(timestamp: number): string {
 
 function tableOfContentsPageSize(settings: Pick<
   BookSettings,
-  'format' | 'orientation' | 'artDirection'
+  'format' | 'orientation' | 'artDirection' | 'customSize'
 >): number {
   const formatBase: Record<BookFormat, number> = {
     a5: 14,
     a4: 22,
     letter: 20,
     square: 18,
+    custom: 14 * getPageDimensions(settings.format, settings.orientation, settings.customSize).heightMm / 210,
   }
-  const orientationFactor = settings.format !== 'square' && settings.orientation === 'landscape'
+  const orientationFactor = settings.format !== 'square' && settings.format !== 'custom' && settings.orientation === 'landscape'
     ? 0.56
     : 1
   const densityFactor = settings.artDirection.density === 'airy'
@@ -954,7 +1035,7 @@ export function getBookNavigationEntries(
 function compositionOptions(settings: BookSettings, theme: DesignedComposition) {
   return {
     theme,
-    ...getPageDimensions(settings.format, settings.orientation),
+    ...getPageDimensions(settings.format, settings.orientation, settings.customSize),
     fontScale: settings.fontScale,
     lineHeight: settings.artDirection.lineHeight,
     photoOverrides: settings.photoOverrides,
@@ -967,7 +1048,10 @@ export function paginateMessages(
   settings: BookSettings,
 ): ChatMessage[][] {
   const materializedMessages = insertEditorialPages(
-    applyCaptionOverrides(messages, settings),
+    applyCaptionOverrides(messages, settings).map((message) => {
+      if (!isVideoMedia(message.mediaName) || !getPhotoOverride(settings, message.id).videoTextOnly) return message
+      return { ...message, kind: 'message' as const, videoName: message.mediaName!, mediaName: null }
+    }),
     settings,
   )
   if (materializedMessages.length === 0) return [[]]

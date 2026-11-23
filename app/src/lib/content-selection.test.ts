@@ -46,6 +46,15 @@ describe('content selection', () => {
     }).map(({ id }) => id)).toEqual(['one'])
   })
 
+  it('filters the messages requiring a manual association', () => {
+    expect(selectContentMessages(messages, {
+      query: '',
+      view: 'missing',
+      excludedMessageIds: [],
+      missingMessageIds: ['one'],
+    }).map(({ id }) => id)).toEqual(['one'])
+  })
+
   it('applies bulk exclusions without duplicates', () => {
     expect(updateExcludedMessages(['one'], ['one', 'two'], true)).toEqual([
       'one',

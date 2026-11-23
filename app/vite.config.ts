@@ -5,7 +5,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 export default defineConfig({
   base: '/whatsapp-book/',
   optimizeDeps: {
-    include: ['@react-pdf/renderer', 'buffer'],
+    include: ['@react-pdf/renderer', 'buffer', 'pdf-lib'],
   },
   plugins: [
     react({

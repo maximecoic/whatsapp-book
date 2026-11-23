@@ -4,10 +4,12 @@ import {
   Check,
   Eye,
   EyeOff,
+  Film,
   Image,
   MessageSquareText,
   Search,
   SlidersHorizontal,
+  Video,
   X,
 } from 'lucide-react'
 import {
@@ -28,6 +30,8 @@ import {
   type ContentView,
 } from '../lib/content-selection'
 import type { ChatMessage } from '../lib/chat-types'
+import { getVideoFrame, isVideoMedia } from '../lib/video-frame'
+import type { ManualVideoAssociation } from '../lib/manual-video'
 import { useResponsiveWorkspacePanel } from './useResponsiveWorkspacePanel'
 
 interface ContentManagerProps {
@@ -38,6 +42,11 @@ interface ContentManagerProps {
   backCoverMediaName: string | null
   photoOverrides: PhotoOverride[]
   captionOverrides: CaptionOverride[]
+  videoAssociations: ManualVideoAssociation[]
+  missingVideoMessageIds: string[]
+  connectedVideoIds: string[]
+  videoAssociationError: string | null
+  videoAssociationNotice: string | null
   participantProfiles: ParticipantProfile[]
   dateFrom: string
   dateTo: string
@@ -59,6 +68,7 @@ interface ContentManagerProps {
   onSetBackCover(mediaName: string | null): void
   onSetExcluded(messageIds: string[], excluded: boolean): void
   onEditPhoto(messageId: string): void
+  onChooseVideo(messageId: string): void
   onSetDateFrom(value: string): void
   onSetDateTo(value: string): void
   onSetIncludedParticipants(participants: string[]): void
@@ -123,9 +133,17 @@ function LazyThumbnail({
     const container = containerRef.current
     if (!container) return
     let active = true
+    let temporaryUrl: string | null = null
 
     const load = () => {
-      void archive.getMediaUrl(mediaName).then((url) => {
+      const source = isVideoMedia(mediaName)
+        ? getVideoFrame(archive, mediaName).then((blob) => {
+          if (!blob || !active) return null
+          temporaryUrl = URL.createObjectURL(blob)
+          return temporaryUrl
+        })
+        : archive.getMediaUrl(mediaName)
+      void source.then((url) => {
         if (!active) return
         if (url) setSource(url)
         else setFailed(true)
@@ -136,6 +154,7 @@ function LazyThumbnail({
       load()
       return () => {
         active = false
+        if (temporaryUrl) URL.revokeObjectURL(temporaryUrl)
       }
     }
 
@@ -148,12 +167,14 @@ function LazyThumbnail({
     return () => {
       active = false
       observer.disconnect()
+      if (temporaryUrl) URL.revokeObjectURL(temporaryUrl)
     }
   }, [archive, mediaName])
 
   return (
     <div className="content-thumbnail" ref={containerRef}>
       {source ? <img src={source} alt="" /> : null}
+      {isVideoMedia(mediaName) ? <span className="content-video-badge"><Film size={12} /></span> : null}
       {!source ? (
         <span className={failed ? 'has-failed' : ''}>
           <Image size={18} aria-hidden="true" />
@@ -171,6 +192,11 @@ export function ContentManager({
   backCoverMediaName,
   photoOverrides,
   captionOverrides,
+  videoAssociations,
+  missingVideoMessageIds,
+  connectedVideoIds,
+  videoAssociationError,
+  videoAssociationNotice,
   participantProfiles,
   dateFrom,
   dateTo,
@@ -192,6 +218,7 @@ export function ContentManager({
   onSetBackCover,
   onSetExcluded,
   onEditPhoto,
+  onChooseVideo,
   onSetDateFrom,
   onSetDateTo,
   onSetIncludedParticipants,
@@ -216,6 +243,8 @@ export function ContentManager({
   const adjustedCaptions = new Set(
     captionOverrides.map((override) => override.messageId),
   )
+  const videoByMessage = new Map(videoAssociations.map((association) => [association.messageId, association]))
+  const connectedVideos = new Set(connectedVideoIds)
   const participantNames = new Map(
     participantProfiles.map((profile) => [profile.participant, profile.displayName]),
   )
@@ -223,6 +252,7 @@ export function ContentManager({
     query: deferredQuery,
     view,
     excludedMessageIds,
+    missingMessageIds: missingVideoMessageIds,
   })
   let previousMonth = ''
 
@@ -362,6 +392,14 @@ export function ContentManager({
             </button>
             <button
               type="button"
+              className={view === 'missing' ? 'is-active' : ''}
+              aria-pressed={view === 'missing'}
+              onClick={() => onViewChange('missing')}
+            >
+              <Video size={14} /> Manquants
+            </button>
+            <button
+              type="button"
               className={view === 'hidden' ? 'is-active' : ''}
               aria-pressed={view === 'hidden'}
               onClick={() => onViewChange('hidden')}
@@ -369,6 +407,9 @@ export function ContentManager({
               <EyeOff size={14} /> Masqués
             </button>
           </div>
+
+          {videoAssociationError ? <p className="video-association-error" role="alert">{videoAssociationError}</p> : null}
+          {videoAssociationNotice ? <p className="video-association-notice" role="status">{videoAssociationNotice}</p> : null}
 
           <div className="content-bulk-actions">
             <span>{visibleMessages.length.toLocaleString('fr-FR')} résultat{visibleMessages.length > 1 ? 's' : ''}</span>
@@ -417,6 +458,13 @@ export function ContentManager({
             const hasPhotoOverride = adjustedPhotos.has(message.id)
             const hasCaptionOverride = adjustedCaptions.has(message.id)
             const hasPhotoAdjustment = hasPhotoOverride || hasCaptionOverride
+            const association = videoByMessage.get(message.id)
+            const videoConnected = connectedVideos.has(message.id)
+            const videoFileName = association?.fileName ?? (
+              isVideoMedia(message.mediaName) ? message.mediaName : null
+            )
+            const canAssociateVideo = ['message', 'media', 'missing-media'].includes(message.kind) &&
+              (!message.mediaName || isVideoMedia(message.mediaName))
             const displaySender = message.sender
               ? participantNames.get(message.sender)?.trim() || message.sender
               : 'WhatsApp'
@@ -440,7 +488,7 @@ export function ContentManager({
                   <button
                     className="content-item-main"
                     type="button"
-                    disabled={isExcluded}
+                    disabled={isExcluded || (message.kind === 'missing-media' && !showMissingMedia)}
                     onClick={() => onPreview(message.id)}
                   >
                     {message.mediaName ? (
@@ -450,24 +498,36 @@ export function ContentManager({
                       <span className="content-item-meta">
                         <strong>{displaySender}</strong>
                         <time>{dateFormatter.format(message.timestamp)}</time>
-                        {hasPhotoOverride ? <em>Photo réglée</em> : null}
+                        {hasPhotoOverride ? <em>{isVideoMedia(message.mediaName) ? 'Vidéo réglée' : 'Photo réglée'}</em> : null}
                         {hasCaptionOverride ? <em>Légende modifiée</em> : null}
+                        {association ? <em>{videoConnected ? 'Vidéo associée' : 'Vidéo à reconnecter'}</em> : null}
                       </span>
                       <span className="content-item-body">
-                        {message.body || (message.mediaName ? 'Photo sans légende' : 'Message vide')}
+                        {message.body || (message.mediaName ? isVideoMedia(message.mediaName) ? 'Vidéo sans message' : 'Photo sans légende' : 'Message vide')}
                       </span>
+                      {videoFileName ? (
+                        <span className="video-association-filename" title={videoFileName}>{videoFileName}</span>
+                      ) : view === 'missing' && message.kind === 'missing-media' ? (
+                        <span className="video-association-filename">Nom du fichier non fourni par WhatsApp</span>
+                      ) : null}
                     </span>
                   </button>
 
                   <div className="content-item-actions">
+                    {canAssociateVideo && !videoConnected ? <button
+                      type="button"
+                      aria-label={`${association ? videoConnected ? 'Remplacer' : 'Reconnecter' : 'Associer'} une vidéo au message de ${displaySender}`}
+                      title={association ? videoConnected ? 'Remplacer la vidéo associée' : 'Reconnecter la vidéo' : 'Associer une vidéo'}
+                      onClick={() => onChooseVideo(message.id)}
+                    ><Video size={16} /></button> : null}
                     {message.mediaName ? (
                       <>
                         <button
                           type="button"
                           className={hasPhotoAdjustment ? 'is-active' : ''}
                           disabled={isExcluded}
-                          aria-label="Régler la photo"
-                          title="Régler la photo"
+                          aria-label={isVideoMedia(message.mediaName) ? 'Régler la vidéo' : 'Régler la photo'}
+                          title={isVideoMedia(message.mediaName) ? 'Régler la vidéo' : 'Régler la photo'}
                           aria-pressed={hasPhotoAdjustment}
                           onClick={() => onEditPhoto(message.id)}
                         >

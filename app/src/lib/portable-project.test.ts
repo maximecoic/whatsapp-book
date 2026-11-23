@@ -18,6 +18,28 @@ const chat: ParsedChat = {
 }
 
 describe('portable project', () => {
+  it('preserves manual video associations without including the video file', () => {
+    const settings = createInitialSettings(chat, 'conversation.zip')
+    settings.videoAssociations = [{ messageId: 'message-1', fileName: 'souvenir.mp4', attachmentId: 'attachment-one' }]
+    const serialized = serializePortableProject({ projectId: 'chat-abc12345-project', archiveName: 'conversation.zip', settings })
+    expect(parsePortableProject(serialized).settings.videoAssociations).toEqual(settings.videoAssociations)
+    expect(serialized).not.toContain('data:video/')
+  })
+  it('round-trips custom page dimensions and editorial presentation', () => {
+    const settings = createInitialSettings(chat, 'conversation.zip')
+    settings.format = 'custom'
+    settings.customSize = { widthMm: 180, heightMm: 240 }
+    settings.editorialPages = [{
+      id: 'custom-text', kind: 'text', title: 'Souvenir', body: 'Notre histoire', anchorMessageId: null,
+      layout: { vertical: 'bottom', align: 'center', fontSize: 16, titleSize: 30, widthPercent: 70 },
+    }]
+    const parsed = parsePortableProject(serializePortableProject({
+      projectId: 'chat-abc12345-project', archiveName: 'conversation.zip', settings,
+    }))
+    expect(parsed.settings.customSize).toEqual(settings.customSize)
+    expect(parsed.settings.editorialPages).toEqual(settings.editorialPages)
+  })
+
   it.each(['gazette', 'photo-story', 'collage'] as const)(
     'round-trips the %s page composition',
     (theme) => {

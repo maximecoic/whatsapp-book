@@ -1,5 +1,6 @@
 import type { PhotoOverride } from './book-model'
 import type { ChatMessage } from './chat-types'
+import { showMediaCaption } from './video-frame'
 
 export type DesignedComposition = 'gazette' | 'photo-story' | 'collage'
 
@@ -104,7 +105,7 @@ function layoutPhotoCollage(messages: ChatMessage[], options: CompositionOptions
       const rowWidth = singleHalf ? (widthMm - gapMm) / 2 : widthMm
       const imageWidth = rowWidth - (row.length - 1) * gapMm - row.length * tilePaddingMm * 2
       const fixedWidth = row.some((message) => overrideFor(message)?.layout === 'wide')
-      const caption = overrideFor(row[0])?.showCaption === false ? '' : row[0].body
+      const caption = showMediaCaption(row[0].mediaName, overrideFor(row[0])?.showCaption) ? row[0].body : ''
       const captionHeight = caption
         ? lineCount(caption, (widthMm - gapMm) / 2 - tilePaddingMm * 2, fontPt) * lineMm + 2
         : 0
@@ -128,7 +129,7 @@ function layoutPhotoCollage(messages: ChatMessage[], options: CompositionOptions
           : widthMm)
         const rowWidth = widths.reduce((total, width) => total + width, 0) + (row.length - 1) * gapMm
         const overhead = Math.max(...row.map((message, index) => {
-          const caption = message.mediaName && overrideFor(message)?.showCaption === false ? '' : message.body
+          const caption = showMediaCaption(message.mediaName, overrideFor(message)?.showCaption) ? message.body : ''
           return 8 + tilePaddingMm * 2 + (caption
             ? lineCount(caption, widths[index] - tilePaddingMm * 2, fontPt) * lineMm + (isPhoto ? 2 : 0)
             : 0)
@@ -214,7 +215,7 @@ export function layoutCompositionPage(
         ? Math.max(20, metrics.heightMm - 20)
         : getCompositionPhotoHeight(options, contentWidth)
       : 0
-    const body = message.mediaName && override?.showCaption === false ? '' : message.body
+    const body = showMediaCaption(message.mediaName, override?.showCaption) ? message.body : ''
     const textHeight = body
       ? lineCount(body, contentWidth, metrics.fontPt) * metrics.lineMm
       : 0

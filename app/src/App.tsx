@@ -117,7 +117,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${archive ? ' has-studio' : ''}`}>
       <header className="app-header">
         <a className="brand" href="/" aria-label="Chatbound, accueil">
           <span className="brand-mark" aria-hidden="true">

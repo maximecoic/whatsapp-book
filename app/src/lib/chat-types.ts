@@ -1,3 +1,5 @@
+import type { EditorialTextLayout } from './book-model'
+
 export type DateOrder = 'auto' | 'dmy' | 'mdy'
 
 export type MessageKind =
@@ -19,6 +21,7 @@ export interface EditorialMessageContent {
   pageId: string
   kind: 'dedication' | 'introduction' | 'text' | 'epilogue' | 'blank' | 'table-of-contents'
   title: string
+  layout?: EditorialTextLayout
   entries?: TableOfContentsEntry[]
 }
 
@@ -28,6 +31,7 @@ export interface ChatMessage {
   sender: string | null
   body: string
   mediaName: string | null
+  videoName?: string
   kind: MessageKind
   continuation?: {
     part: number

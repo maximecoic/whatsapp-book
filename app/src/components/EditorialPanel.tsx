@@ -15,12 +15,13 @@ import {
   X,
 } from 'lucide-react'
 import { useDeferredValue, useEffect, useState } from 'react'
-import type {
-  BookBookmark,
-  BookChapter,
-  EditorialPage,
-  EditorialPageKind,
-  ParticipantProfile,
+import {
+  normalizeEditorialLayout,
+  type BookBookmark,
+  type BookChapter,
+  type EditorialPage,
+  type EditorialPageKind,
+  type ParticipantProfile,
 } from '../lib/book-model'
 import type { ChatMessage } from '../lib/chat-types'
 import { ChapterBreakControls } from './StructureInspector'
@@ -82,6 +83,7 @@ function createPage(kind: EditorialPageKind): EditorialPage {
     title: PAGE_KIND_META[kind].defaultTitle,
     body: '',
     anchorMessageId: null,
+    layout: { ...normalizeEditorialLayout(undefined), align: kind === 'dedication' ? 'center' : 'left' },
   }
 }
 
@@ -371,6 +373,59 @@ export function EditorialPanel({
                         onChange={(event) => setPageDraft({ ...pageDraft, body: event.target.value })}
                       />
                     </label>
+                    <details className="editorial-text-settings" open>
+                      <summary>Présentation du texte</summary>
+                      <div className="inline-fields">
+                        <label>
+                          Position sur la page
+                          <select
+                            value={normalizeEditorialLayout(pageDraft.layout).vertical}
+                            onChange={(event) => setPageDraft({ ...pageDraft, layout: {
+                              ...normalizeEditorialLayout(pageDraft.layout),
+                              vertical: event.target.value as 'top' | 'center' | 'bottom',
+                            } })}
+                          >
+                            <option value="top">En haut</option>
+                            <option value="center">Au centre</option>
+                            <option value="bottom">En bas</option>
+                          </select>
+                        </label>
+                        <label>
+                          Alignement
+                          <select
+                            value={normalizeEditorialLayout(pageDraft.layout).align}
+                            onChange={(event) => setPageDraft({ ...pageDraft, layout: {
+                              ...normalizeEditorialLayout(pageDraft.layout),
+                              align: event.target.value as 'left' | 'center' | 'right',
+                            } })}
+                          >
+                            <option value="left">Gauche</option>
+                            <option value="center">Centré</option>
+                            <option value="right">Droite</option>
+                          </select>
+                        </label>
+                      </div>
+                      {([
+                        { key: 'fontSize', label: 'Taille du texte (pt)', min: 8, max: 24 },
+                        { key: 'titleSize', label: 'Taille du titre (pt)', min: 12, max: 40 },
+                        { key: 'widthPercent', label: 'Largeur du bloc (%)', min: 50, max: 100 },
+                      ] as const).map(({ key, label, min, max }) => (
+                        <label key={key}>
+                          {label}
+                          <input
+                            type="range"
+                            min={min}
+                            max={max}
+                            value={normalizeEditorialLayout(pageDraft.layout)[key]}
+                            onChange={(event) => setPageDraft({ ...pageDraft, layout: {
+                              ...normalizeEditorialLayout(pageDraft.layout),
+                              [key]: Number(event.target.value),
+                            } })}
+                          />
+                          <output>{normalizeEditorialLayout(pageDraft.layout)[key]}</output>
+                        </label>
+                      ))}
+                    </details>
                   </>
                 ) : null}
                 {pageDraft.kind === 'text' || pageDraft.kind === 'blank' ? (
